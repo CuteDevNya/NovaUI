@@ -1,86 +1,121 @@
-NovaUI 1.1.3 - Liquid Glass GUI Library
-=================================
+NovaUI 1.2.0 - Liquid Glass GUI Library
+=======================================
 
-
-CHANGES IN 1.1.2
+CHANGES IN 1.2.0
 ----------------
-- Notification duration bars are inset from the bottom corners and use rounded ends.
-- Notification accent strips are inset and rounded to match the liquid-glass style.
-- Tooltips only appear when a control explicitly sets Tooltip = "...".
-- Close, collapse-to-icon, and collapse-to-bar controls have no automatic tooltips.
-- Keybind and color-picker hints are no longer forced on by default.
-- The example logo button now actually changes the logo to a star (★), not the letter N.
-
-BUGFIXES IN 1.1.1
------------------
-- CollapseBar hides the sidebar, tab pages, and header divider while collapsed.
-- Square collapse hides the same content so only the compact icon remains visible.
-- Expansion restores the saved position without drift caused by ordinary button clicks.
-- The compact square can be dragged; the expanded window follows its new location.
-- Dropdown chevron arms overlap cleanly and have rounded ends.
-
-CHANGES IN 1.1.3
-----------------
-- The window now uses a fixed top-left anchor, so collapsing into the icon does not pull it toward the center.
-- The compact icon and expanded window share the same origin. Restoring grows toward the right and bottom.
-- Dragging the window or icon is clamped so the expanded window stays inside the current viewport.
-- Window width and height adapt to viewport changes, including orientation changes.
-- Sidebar spacing and title/subtitle widths adapt to narrower screens.
-- Window collapse/restore uses non-overshooting easing to avoid crossing screen edges.
+- Command Palette: search registered commands and tabs with Ctrl+K.
+- Live Theme Editor: theme presets, accent colors, glass transparency, corner radius and reduced motion.
+- SetThemeConfig supports custom palette colors, accent, root transparency, corner radius and animation speed.
+- Notification helpers: NotifySuccess, NotifyWarning, NotifyError and NotifyInfo.
+- Notifications keep stacking behavior and can include ShowCloseButton = true.
+- New controls: AddMultiDropdown, AddProgressBar, AddRadioGroup and AddKeybindList.
+- KeybindList refreshes when a keybind changes.
+- Window snapping and bottom-right resizing can be configured using SnapToEdges and Resizable.
+- GetConfig and ApplyConfig save/restore theme and registered control state in memory.
+- AnimationScale controls overall tween duration.
 
 INSTALLATION (Roblox Studio)
 1. Create a ModuleScript named NovaUI inside ReplicatedStorage.
 2. Paste the full contents of NovaUI.lua into that ModuleScript.
 3. Create a LocalScript inside StarterPlayer > StarterPlayerScripts.
-4. Copy the contents of NovaUI_Example.lua into that LocalScript.
-5. Play-test the experience.
+4. Copy NovaUI_Example.lua into that LocalScript and set USE_GITHUB_LOADER = false.
+5. Press Play.
 
-OPTIONAL LOGO
-Text / letter:
-  Logo = { Type = "Text", Text = "N" }
+GITHUB RAW LOADER (EXECUTOR-DEPENDENT)
+The example also includes:
+  local NovaUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/CuteDevNya/NovaUI/main/NovaUI.lua"))()
 
-Image:
-  Logo = { Type = "Image", Image = "rbxassetid://YOUR_IMAGE_ID" }
+This is not supported in a normal Roblox Studio LocalScript. Only run source you trust and only where you are permitted to test it.
 
-No logo:
-  Omit the Logo setting or use Logo = nil.
+QUICK EXAMPLE
+  local Window = NovaUI:CreateWindow({
+      Title = "NovaUI",
+      Theme = "Dark",
+      AccentColor = Color3.fromRGB(104, 190, 255),
+      Resizable = true,
+      SnapToEdges = true,
+  })
+  local Main = Window:CreateTab("Main")
+  Main:AddButton({
+      Name = "Notify",
+      Callback = function()
+          Window:NotifySuccess("Saved!", 3)
+      end,
+  })
 
-WINDOW COLLAPSE API
-  Window:CollapseBar()          -- keeps the window width; only the title bar remains
-  Window:ToggleBarCollapse()    -- collapse / expand the title bar mode
-  Window:CollapseToSquare()    -- collapses the window to a square icon
-  Window:ToggleSquareCollapse() -- toggles square collapse / full restore
-  Window:Expand()               -- restores the full window from either mode
-  Window:SetVisible(false)      -- hide the whole window
-  Window:SetVisible(true)       -- show it again
-  Window:Close()                -- animate then destroy the GUI
-  Window:Destroy()              -- destroy immediately
+NEW CONTROLS
+  Tab:AddMultiDropdown({
+      Name = "Effects",
+      Options = { "Bloom", "Shadows" },
+      Default = { "Bloom" },
+      Callback = function(values) end,
+  })
+
+  local progress = Tab:AddProgressBar({
+      Name = "Loading",
+      Min = 0,
+      Max = 100,
+      Default = 20,
+  })
+  progress:Set(75)
+
+  Tab:AddRadioGroup({
+      Name = "Quality",
+      Options = { "Low", "High" },
+      Default = "High",
+      Callback = function(value) end,
+  })
+
+  Tab:AddKeybindList({ Name = "Keybinds", Height = 150 })
+
+COMMAND PALETTE
+  Window:RegisterCommand("Open editor", function()
+      Window:OpenThemeEditor()
+  end, { "theme", "colors" })
+
+  Window:OpenCommandPalette()
+  -- Ctrl+K opens the Command Palette.
+
+THEME AND CONFIG
+  Window:SetThemeConfig({
+      Theme = "Ocean",
+      AccentColor = Color3.fromRGB(100, 200, 255),
+      WindowTransparency = 0.12,
+      CornerRadius = 16,
+      AnimationScale = 0.9,
+      Colors = {
+          Background = Color3.fromRGB(18, 25, 40),
+      },
+  })
+
+  local saved = Window:GetConfig()
+  Window:ApplyConfig(saved)
+
+  Window:NotifySuccess("Saved!", 3)
+  Window:NotifyWarning("Careful!", 3)
+  Window:NotifyError("Something failed.", 3)
+  Window:NotifyInfo("FYI", 3)
+
+EXISTING CONTROLS
+  Tab:AddSection, AddLabel, AddParagraph, AddDivider
+  Tab:AddButton, AddToggle, AddSlider, AddDropdown
+  Tab:AddTextBox, AddKeybind, AddColorPicker
 
 WINDOW OPTIONS
   Window:SetTitle(title, subtitle)
   Window:SetLogo(value, "Text")
   Window:SetLogo("rbxassetid://YOUR_IMAGE_ID", "Image")
-  Window:SetTheme("Dark")       -- Dark, Midnight, Ocean, Light
+  Window:SetTheme("Dark") -- Dark, Midnight, Ocean, Light
   Window:SetAccentColor(Color3.fromRGB(104, 190, 255))
   Window:SetToggleKey(Enum.KeyCode.RightControl)
-  Window:SetToggleKey(nil)       -- disable the visibility shortcut
   Window:SetReducedMotion(true)
-  Window:Notify("Success", "Saved!")
+  Window:CollapseBar()
+  Window:CollapseToSquare()
+  Window:Expand()
+  Window:SetVisible(false)
+  Window:Close()
+  Window:Destroy()
 
-CONTROLS
-  Tab:AddSection("SECTION")
-  Tab:AddLabel("Text")
-  Tab:AddParagraph({ Title = "Title", Content = "Description" })
-  Tab:AddDivider()
-  Tab:AddButton({ Name = "Run", Callback = function() end })
-  Tab:AddToggle({ Name = "Enabled", Default = false, Callback = function(value) end })
-  Tab:AddSlider({ Name = "Amount", Min = 0, Max = 100, Default = 50, Callback = function(value) end })
-  Tab:AddDropdown({ Name = "Quality", Options = { "Low", "High" }, Default = "High", Callback = function(value) end })
-  Tab:AddTextBox({ Name = "Name", Placeholder = "Type here...", Callback = function(text, enterPressed) end })
-  Tab:AddKeybind({ Name = "Action key", Default = Enum.KeyCode.F, Callback = function(keyCode) end })
-  Tab:AddColorPicker({ Name = "Accent", Default = Color3.fromRGB(100, 180, 255), Callback = function(color) end })
-
-Tooltips are opt-in only: add Tooltip = "Explanation" to the individual control when you want one. Controls without Tooltip have no tooltip.
-
-The liquid-glass appearance is simulated using transparency, gradients, strokes,
-and animated highlights. A true per-panel blur of the 3D scene is not applied.
+Tooltips are opt-in: set Tooltip = "Explanation" on a control to show one.
+The liquid-glass appearance is simulated with transparency, gradients, outlines,
+and highlights; standard ScreenGui does not provide a true per-panel backdrop blur.
