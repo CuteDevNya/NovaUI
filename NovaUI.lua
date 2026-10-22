@@ -1331,15 +1331,17 @@ function WindowMethods:CreateTab(tabName, options)
 end
 
 function TabMethods:AddSection(sectionName)
+    local config = type(sectionName) == "table" and sectionName or { Name = sectionName }
     local frame = create("Frame", {
         Name = "Section",
         Size = UDim2.new(1, -2, 0, 26),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
     }, self.Page)
-    createText(frame, tostring(sectionName or "SECTION"):upper(), 11, self.Window.AccentColor, {
-        Position = UDim2.new(0, 3, 0, 0),
-        Size = UDim2.new(1, -6, 1, 0),
+    local iconOffset = addLeadingIcon(frame, config.Icon, self.Window, 13, 18)
+    createText(frame, tostring(config.Name or config.Text or "SECTION"):upper(), 11, self.Window.AccentColor, {
+        Position = UDim2.new(0, 3 + iconOffset, 0, 0),
+        Size = UDim2.new(1, -6 - iconOffset, 1, 0),
         Font = Enum.Font.GothamBold,
         TextXAlignment = Enum.TextXAlignment.Left,
     })
@@ -1352,10 +1354,11 @@ function TabMethods:AddLabel(config)
     end
     config = config or {}
     local card = makeCard(self.Page, config.Height or 42, self.Window)
-    card.BackgroundTransparency = 0.48
+    card.BackgroundTransparency = self.Page:GetAttribute("NovaGroupContainer") and 1 or 0.48
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, (config.Height or 42) / 2, 20)
     createText(card, config.Text or config.Name or "Label", config.TextSize or 13, config.TextColor or self.Window.Colors.Muted, {
-        Position = UDim2.new(0, 13, 0, 0),
-        Size = UDim2.new(1, -26, 1, 0),
+        Position = UDim2.new(0, 13 + iconOffset, 0, 0),
+        Size = UDim2.new(1, -26 - iconOffset, 1, 0),
         TextWrapped = true,
         Font = Enum.Font.Gotham,
     })
@@ -2218,19 +2221,20 @@ function TabMethods:AddParagraph(config)
     local content = tostring(config.Content or config.Text or "")
     local height = tonumber(config.Height) or math.clamp(36 + math.ceil(#content / 58) * 15 + (heading ~= "" and 20 or 0), 54, 180)
     local card = makeCard(self.Page, height, self.Window)
-    card.BackgroundTransparency = 0.36
+    card.BackgroundTransparency = self.Page:GetAttribute("NovaGroupContainer") and 1 or 0.36
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, heading ~= "" and 17 or height / 2, 20)
     if heading ~= "" then
         createText(card, heading, 13, self.Window.Colors.Text, {
             Name = "ParagraphTitle",
-            Position = UDim2.new(0, 13, 0, 6),
-            Size = UDim2.new(1, -26, 0, 22),
+            Position = UDim2.new(0, 13 + iconOffset, 0, 6),
+            Size = UDim2.new(1, -26 - iconOffset, 0, 22),
             Font = Enum.Font.GothamBold,
         })
     end
     createText(card, content, 12, self.Window.Colors.Muted, {
         Name = "ParagraphContent",
-        Position = UDim2.new(0, 13, 0, heading ~= "" and 29 or 7),
-        Size = UDim2.new(1, -26, 1, heading ~= "" and -35 or -14),
+        Position = UDim2.new(0, 13 + iconOffset, 0, heading ~= "" and 29 or 7),
+        Size = UDim2.new(1, -26 - iconOffset, 1, heading ~= "" and -35 or -14),
         Font = Enum.Font.Gotham,
         TextWrapped = true,
         TextYAlignment = Enum.TextYAlignment.Top,
