@@ -469,7 +469,7 @@ function WindowMethods:SetThemeConfig(config)
     local oldPalette = self.Colors or COLORS
     local themeName = normalizeThemeName(config.Theme or self.Theme or "Dark")
     local newPalette = copyTheme(themeName)
-    local overrides = type(config.Colors) == "table" and config.Colors or {}
+    local overrides = type(config.Colors) == "table" and config.Colors or self._customColors or {}
     for key, value in pairs(overrides) do
         if newPalette[key] ~= nil and typeof(value) == "Color3" then
             newPalette[key] = value
@@ -590,376 +590,6 @@ function WindowMethods:RegisterControl(name, kind, control)
     end
     self._controls[key] = { Name = key, Type = tostring(kind or "Control"), Control = control }
     return control
-end
-
-function WindowMethods:GetConfig()
-    local result = {
-        Theme = self.Theme,
-        AccentColor = self.AccentColor,
-        ReducedMotion = self.ReducedMotion,
-        WindowTransparency = self._windowTransparency,
-        CornerRadius = self._cornerRadius,
-        AnimationScale = self._animationScale,
-        Controls = {},
-    }
-    if type(self._customColors) == "table" then
-        result.Colors = {}
-        for key, value in pairs(self._customColors) do
-            result.Colors[key] = value
-        end
-    end
-    for name, entry in pairs(self._controls or {}) do
-        local ok, value = pcall(function() return entry.Control:Get() end)
-        if ok then result.Controls[name] = value end
-    end
-    return result
-end
-
-function WindowMethods:ApplyConfig(config)
-    if self._destroyed or type(config) ~= "table" then return end
-    self:SetThemeConfig(config)
-    if config.ReducedMotion ~= nil then
-        self:SetReducedMotion(config.ReducedMotion == true)
-    end
-    for name, value in pairs(config.Controls or {}) do
-        local entry = self._controls and self._controls[name]
-        if entry then
-            local fireCallbacks = config.FireCallbacks == true
-            local kind = entry.Type
-            pcall(function()
-                if kind == "TextBox" then
-                    entry.Control:Set(value, fireCallbacks)
-                else
-                    entry.Control:Set(value, not fireCallbacks)
-                end
-            end)
-        end
-    end
-end
-
-function WindowMethods:RegisterCommand(name, callback, keywords)
-    if type(callback) ~= "function" then return end
-    self._commands = self._commands or {}
-    table.insert(self._commands, {
-        Name = tostring(name or "Command"),
-        Callback = callback,
-        Keywords = type(keywords) == "table" and table.concat(keywords, " ") or tostring(keywords or ""),
-    })
-end
-
-function WindowMethods:CloseCommandPalette()
-    if self._commandPalette and self._commandPalette.Frame then
-        self._commandPalette.Frame.Visible = false
-    end
-end
-
-function WindowMethods:OpenCommandPalette()
-    if self._destroyed then return end
-    local palette = self._commandPalette
-    if not palette then
-        local backdrop = create("TextButton", {
-            Name = "CommandPaletteBackdrop",
-            Size = UDim2.fromScale(1, 1),
-            BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-            BackgroundTransparency = 0.58,
-            BorderSizePixel = 0,
-            Text = "",
-            AutoButtonColor = false,
-            ZIndex = 150,
-        }, self._screenGui)
-        local frame = create("Frame", {
-            Name = "CommandPalette",
-            AnchorPoint = Vector2.new(0.5, 0),
-            Position = UDim2.new(0.5, 0, 0, 72),
-            Size = UDim2.new(0.9, 0, 0, 340),
-            BackgroundColor3 = self.Colors.Card,
-            BackgroundTransparency = 0.04,
-            BorderSizePixel = 0,
-            ZIndex = 151,
-            ClipsDescendants = true,
-        }, backdrop)
-        addCorner(frame, 14)
-        addStroke(frame, self.AccentColor, 0.35, 1.2)
-        createText(frame, "COMMAND PALETTE", 10, self.Colors.Accent, {
-            Position = UDim2.new(0, 14, 0, 8),
-            Size = UDim2.new(1, -28, 0, 18),
-            ZIndex = 153,
-            Font = Enum.Font.GothamBold,
-        })
-        local search = create("TextBox", {
-            Name = "CommandSearch",
-            Position = UDim2.new(0, 12, 0, 32),
-            Size = UDim2.new(1, -24, 0, 38),
-            BackgroundColor3 = self.Colors.BackgroundLight,
-            BackgroundTransparency = 0.06,
-            BorderSizePixel = 0,
-            Text = "",
-            PlaceholderText = "Search commands or tabs...",
-            PlaceholderColor3 = self.Colors.Muted,
-            TextColor3 = self.Colors.Text,
-            TextSize = 13,
-            Font = Enum.Font.Gotham,
-            ClearTextOnFocus = false,
-            ZIndex = 153,
-        }, frame)
-        addCorner(search, 9)
-        local results = create("ScrollingFrame", {
-            Name = "CommandResults",
-            Position = UDim2.new(0, 12, 0, 79),
-            Size = UDim2.new(1, -24, 1, -91),
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
-            ScrollBarThickness = 3,
-            ScrollBarImageColor3 = self.AccentColor,
-            AutomaticCanvasSize = Enum.AutomaticSize.Y,
-            CanvasSize = UDim2.new(0, 0, 0, 0),
-            ScrollingDirection = Enum.ScrollingDirection.Y,
-            ZIndex = 152,
-        }, frame)
-        create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, results)
-        palette = { Frame = backdrop, Panel = frame, Search = search, Results = results, RunFirst = nil }
-        self._commandPalette = palette
-
-        local function render(query)
-            for _, child in ipairs(results:GetChildren()) do
-                if child:IsA("TextButton") or child.Name == "CommandEmpty" then child:Destroy() end
-            end
-            query = string.lower(tostring(query or ""))
-            local matches = {}
-            for _, command in ipairs(self._commands or {}) do
-                local haystack = string.lower(command.Name .. " " .. command.Keywords)
-                if query == "" or string.find(haystack, query, 1, true) then
-                    table.insert(matches, { Name = command.Name, Callback = command.Callback })
-                end
-            end
-            for _, tab in ipairs(self._tabs or {}) do
-                local name = "Open tab: " .. tab.Name
-                if query == "" or string.find(string.lower(name), query, 1, true) then
-                    table.insert(matches, {
-                        Name = name,
-                        Callback = function()
-                            self:SelectTab(tab)
-                            self:SetVisible(true)
-                            self:CloseCommandPalette()
-                        end,
-                    })
-                end
-            end
-            palette.RunFirst = matches[1] and matches[1].Callback or nil
-            if #matches == 0 then
-                createText(results, "No matching commands", 12, self.Colors.Muted, {
-                    Name = "CommandEmpty",
-                    Size = UDim2.new(1, -8, 0, 34),
-                    ZIndex = 154,
-                })
-                return
-            end
-            for index, item in ipairs(matches) do
-                local button = create("TextButton", {
-                    Name = "CommandResult_" .. index,
-                    Size = UDim2.new(1, -5, 0, 34),
-                    BackgroundColor3 = self.Colors.CardHover,
-                    BackgroundTransparency = 0.3,
-                    BorderSizePixel = 0,
-                    Text = item.Name,
-                    TextColor3 = self.Colors.Text,
-                    TextSize = 12,
-                    Font = Enum.Font.GothamMedium,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    AutoButtonColor = false,
-                    LayoutOrder = index,
-                    ZIndex = 154,
-                }, results)
-                addCorner(button, 8)
-                create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 8) }, button)
-                addInteractive(button, self, nil)
-                addConnection(self, button.Activated, function()
-                    self:CloseCommandPalette()
-                    safeCallback(item.Callback)
-                end)
-            end
-        end
-        palette.Render = render
-        addConnection(self, search:GetPropertyChangedSignal("Text"), function() render(search.Text) end)
-        addConnection(self, search.FocusLost, function(enterPressed)
-            if enterPressed and palette.RunFirst then
-                local callback = palette.RunFirst
-                self:CloseCommandPalette()
-                safeCallback(callback)
-            end
-        end)
-        addConnection(self, backdrop.Activated, function()
-            self:CloseCommandPalette()
-        end)
-        addConnection(self, UserInputService.InputBegan, function(input, processed)
-            if not processed and input.KeyCode == Enum.KeyCode.Escape and palette.Frame.Visible then
-                self:CloseCommandPalette()
-            end
-        end)
-    end
-    palette.Frame.Visible = true
-    palette.Search.Text = ""
-    palette.Render("")
-    palette.Search:CaptureFocus()
-end
-
-function WindowMethods:OpenThemeEditor()
-    if self._destroyed then return end
-    local editor = self._themeEditor
-    if editor and editor.Frame and editor.Frame.Parent then
-        editor.Frame.Visible = not editor.Frame.Visible
-        return
-    end
-
-    local frame = create("Frame", {
-        Name = "NovaThemeEditor",
-        AnchorPoint = Vector2.new(1, 0),
-        Position = UDim2.new(1, -18, 0, 76),
-        Size = UDim2.fromOffset(310, 330),
-        BackgroundColor3 = self.Colors.Card,
-        BackgroundTransparency = 0.04,
-        BorderSizePixel = 0,
-        ZIndex = 170,
-        ClipsDescendants = true,
-    }, self._screenGui)
-    addCorner(frame, 15)
-    addStroke(frame, self.AccentColor, 0.32, 1.2)
-    createText(frame, "LIVE THEME EDITOR", 12, self.Colors.Text, {
-        Position = UDim2.new(0, 14, 0, 10), Size = UDim2.new(1, -52, 0, 24),
-        Font = Enum.Font.GothamBold, ZIndex = 171,
-    })
-    local close = create("TextButton", {
-        Name = "ThemeEditorClose", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -9, 0, 8),
-        Size = UDim2.fromOffset(26, 26), BackgroundColor3 = self.Colors.CardHover,
-        BackgroundTransparency = 0.1, BorderSizePixel = 0, Text = "×",
-        TextColor3 = self.Colors.Text, TextSize = 18, Font = Enum.Font.GothamBold, ZIndex = 172,
-    }, frame)
-    addCorner(close, 8)
-    addConnection(self, close.Activated, function() frame.Visible = false end)
-
-    createText(frame, "Theme preset", 11, self.Colors.Muted, {
-        Position = UDim2.new(0, 14, 0, 43), Size = UDim2.new(1, -28, 0, 18), ZIndex = 171,
-    })
-    local themeNames = { "Dark", "Midnight", "Ocean", "Light" }
-    for index, name in ipairs(themeNames) do
-        local itemName = name
-        local btn = create("TextButton", {
-            Name = "Theme_" .. name,
-            Position = UDim2.new(0, 12 + ((index - 1) % 2) * 144, 0, 64 + math.floor((index - 1) / 2) * 34),
-            Size = UDim2.fromOffset(138, 28),
-            BackgroundColor3 = self.Colors.CardHover,
-            BackgroundTransparency = 0.12,
-            BorderSizePixel = 0,
-            Text = name,
-            TextColor3 = self.Colors.Text,
-            TextSize = 11,
-            Font = Enum.Font.GothamMedium,
-            ZIndex = 171,
-        }, frame)
-        addCorner(btn, 8)
-        addConnection(self, btn.Activated, function() self:SetTheme(itemName) end)
-    end
-    createText(frame, "Accent colors", 11, self.Colors.Muted, {
-        Position = UDim2.new(0, 14, 0, 142), Size = UDim2.new(1, -28, 0, 18), ZIndex = 171,
-    })
-    local accentColors = {
-        { "Blue", Color3.fromRGB(104, 190, 255) },
-        { "Purple", Color3.fromRGB(174, 140, 255) },
-        { "Mint", Color3.fromRGB(94, 230, 190) },
-        { "Pink", Color3.fromRGB(255, 125, 190) },
-        { "Orange", Color3.fromRGB(255, 174, 96) },
-    }
-    for index, item in ipairs(accentColors) do
-        local slot = index
-        local colorButton = create("TextButton", {
-            Name = "Accent_" .. item[1],
-            Position = UDim2.new(0, 14 + (index - 1) * 55, 0, 164),
-            Size = UDim2.fromOffset(44, 26),
-            BackgroundColor3 = item[2],
-            BorderSizePixel = 0,
-            Text = "",
-            ZIndex = 171,
-        }, frame)
-        addCorner(colorButton, 8)
-        addStroke(colorButton, self.Colors.White, 0.52, 1)
-        addConnection(self, colorButton.Activated, function()
-            self:SetThemeConfig({ AccentColor = accentColors[slot][2] })
-        end)
-    end
-    local transparencyButton = create("TextButton", {
-        Name = "CycleTransparency",
-        Position = UDim2.new(0, 12, 0, 206),
-        Size = UDim2.fromOffset(138, 30),
-        BackgroundColor3 = self.Colors.CardHover,
-        BackgroundTransparency = 0.1,
-        BorderSizePixel = 0,
-        Text = "Glass: " .. string.format("%d%%", math.floor((1 - (self._windowTransparency or 0.14)) * 100)),
-        TextColor3 = self.Colors.Text,
-        TextSize = 11,
-        ZIndex = 171,
-    }, frame)
-    addCorner(transparencyButton, 8)
-    local transparencyValues = { 0.08, 0.14, 0.24 }
-    addConnection(self, transparencyButton.Activated, function()
-        local current = self._windowTransparency or 0.14
-        local nextValue = transparencyValues[1]
-        for index, value in ipairs(transparencyValues) do
-            if math.abs(current - value) < 0.015 then
-                nextValue = transparencyValues[index % #transparencyValues + 1]
-                break
-            end
-        end
-        self:SetThemeConfig({ WindowTransparency = nextValue })
-        transparencyButton.Text = "Glass: " .. string.format("%d%%", math.floor((1 - nextValue) * 100))
-    end)
-    local radiusButton = create("TextButton", {
-        Name = "CycleCornerRadius",
-        Position = UDim2.new(0, 158, 0, 206),
-        Size = UDim2.fromOffset(138, 30),
-        BackgroundColor3 = self.Colors.CardHover,
-        BackgroundTransparency = 0.1,
-        BorderSizePixel = 0,
-        Text = "Roundness: " .. tostring(self._cornerRadius or 16),
-        TextColor3 = self.Colors.Text,
-        TextSize = 11,
-        ZIndex = 171,
-    }, frame)
-    addCorner(radiusButton, 8)
-    local radii = { 10, 16, 22 }
-    addConnection(self, radiusButton.Activated, function()
-        local current = self._cornerRadius or 16
-        local nextValue = radii[1]
-        for index, value in ipairs(radii) do
-            if current == value then nextValue = radii[index % #radii + 1]; break end
-        end
-        self:SetThemeConfig({ CornerRadius = nextValue })
-        radiusButton.Text = "Roundness: " .. tostring(nextValue)
-    end)
-    local motionButton = create("TextButton", {
-        Name = "ToggleReducedMotion",
-        Position = UDim2.new(0, 12, 0, 246),
-        Size = UDim2.new(1, -24, 0, 30),
-        BackgroundColor3 = self.Colors.CardHover,
-        BackgroundTransparency = 0.1,
-        BorderSizePixel = 0,
-        Text = self.ReducedMotion and "Animations: Reduced" or "Animations: Full",
-        TextColor3 = self.Colors.Text,
-        TextSize = 11,
-        ZIndex = 171,
-    }, frame)
-    addCorner(motionButton, 8)
-    addConnection(self, motionButton.Activated, function()
-        self:SetReducedMotion(not self.ReducedMotion)
-        motionButton.Text = self.ReducedMotion and "Animations: Reduced" or "Animations: Full"
-    end)
-    createText(frame, "Changes apply immediately.", 10, self.Colors.Muted, {
-        Position = UDim2.new(0, 14, 0, 286), Size = UDim2.new(1, -28, 0, 24), ZIndex = 171,
-    })
-    self._themeEditor = { Frame = frame }
-end
-
-function WindowMethods:OpenCommandPaletteShortcut()
-    self:OpenCommandPalette()
 end
 
 function WindowMethods:SetReducedMotion(enabled)
@@ -1289,6 +919,7 @@ function WindowMethods:Notify(config, message, duration)
     }, self._screenGui)
     addCorner(toast, 13)
     local outline = addStroke(toast, accent, 0.35, 1.1)
+    local record = { Frame = toast, Stroke = outline }
     if config.ShowCloseButton == true then
         local closeToast = create("TextButton", {
             Name = "NotificationClose",
@@ -1347,7 +978,6 @@ function WindowMethods:Notify(config, message, duration)
     }, toast)
     addCorner(progress, 3)
 
-    local record = { Frame = toast, Stroke = outline }
     table.insert(self._notifications, record)
     while #self._notifications > 4 do
         local oldest = table.remove(self._notifications, 1)
@@ -2760,7 +2390,8 @@ function WindowMethods:OpenCommandPalette()
         }, self._screenGui)
         local panel = create("Frame", {
             Name = "CommandPalette", AnchorPoint = Vector2.new(0.5, 0),
-            Position = UDim2.new(0.5, 0, 0, 66), Size = UDim2.new(0.92, 0, 0, 335),
+            Position = UDim2.new(0.5, 0, 0, 12),
+            Size = UDim2.new(0.92, 0, 0, math.max(180, math.min(335, currentViewportSize().Y - 24))),
             BackgroundColor3 = self.Colors.Card, BackgroundTransparency = 0.04,
             BorderSizePixel = 0, ZIndex = 151, ClipsDescendants = true,
         }, backdrop)
@@ -2869,7 +2500,7 @@ function WindowMethods:OpenThemeEditor()
         return
     end
     local viewport = currentViewportSize()
-    local panelWidth = math.min(310, math.max(220, viewport.X - 20))
+    local panelWidth = math.max(180, math.min(310, viewport.X - 20))
     local frame = create("Frame", {
         Name = "NovaThemeEditor", AnchorPoint = Vector2.new(1, 0),
         Position = UDim2.new(1, -12, 0, 76), Size = UDim2.fromOffset(panelWidth, 330),
@@ -2899,8 +2530,8 @@ function WindowMethods:OpenThemeEditor()
         local themeName = name
         local button = create("TextButton", {
             Name = "Theme_" .. name,
-            Position = UDim2.new(0, 12 + ((index - 1) % 2) * 144, 0, 64 + math.floor((index - 1) / 2) * 34),
-            Size = UDim2.fromOffset(math.min(138, panelWidth / 2 - 15), 28),
+            Position = UDim2.new(0, 12 + ((index - 1) % 2) * ((panelWidth - 30) / 2 + 6), 0, 64 + math.floor((index - 1) / 2) * 34),
+            Size = UDim2.fromOffset((panelWidth - 30) / 2, 28),
             BackgroundColor3 = self.Colors.CardHover, BackgroundTransparency = 0.12,
             BorderSizePixel = 0, Text = name, TextColor3 = self.Colors.Text,
             TextSize = 11, Font = Enum.Font.GothamMedium, ZIndex = 171,
@@ -2919,8 +2550,9 @@ function WindowMethods:OpenThemeEditor()
     for index, item in ipairs(accents) do
         local slot = index
         local button = create("TextButton", {
-            Name = "Accent_" .. item[1], Position = UDim2.new(0, 14 + (index - 1) * 55, 0, 164),
-            Size = UDim2.fromOffset(math.min(44, math.max(28, (panelWidth - 40) / #accents - 4)), 26),
+            Name = "Accent_" .. item[1],
+            Position = UDim2.new(0, 14 + (index - 1) * ((panelWidth - 28) / #accents), 0, 164),
+            Size = UDim2.fromOffset(math.max(20, (panelWidth - 28) / #accents - 5), 26),
             BackgroundColor3 = item[2], BorderSizePixel = 0, Text = "", ZIndex = 171,
         }, frame)
         addCorner(button, 8)
@@ -3528,13 +3160,23 @@ function NovaUI:CreateWindow(config)
             Size = UDim2.fromOffset(18, 18),
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
-            Text = "⌟",
-            TextColor3 = self and palette.Text or palette.Text,
-            TextSize = 16,
-            Font = Enum.Font.GothamBold,
+            Text = "",
             AutoButtonColor = false,
             ZIndex = 40,
         }, root)
+        for index = 1, 3 do
+            local line = create("Frame", {
+                Name = "ResizeLine_" .. index,
+                AnchorPoint = Vector2.new(1, 1),
+                Position = UDim2.new(1, -2, 1, -2 - (index - 1) * 4),
+                Size = UDim2.fromOffset(4 + index * 2, 2),
+                BackgroundColor3 = palette.Text,
+                BackgroundTransparency = 0.12,
+                BorderSizePixel = 0,
+                ZIndex = 41,
+            }, resizeGrip)
+            addCorner(line, 2)
+        end
         window._resizeGrip = resizeGrip
         local resizing = false
         local resizeStart = nil
