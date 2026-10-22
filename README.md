@@ -1,65 +1,103 @@
-# NovaUI
+# NovaUI 1.2.0
 
-A reusable liquid-glass GUI library for Roblox Studio projects, with soft spring animations and an optional, customizable logo.
+A reusable liquid-glass GUI library for Roblox Studio projects, with springy controls, themes, notifications, command search, and responsive window controls.
 
 ## Files
 
-- **NovaUI.lua** — the library. Add it as a ModuleScript named NovaUI in ReplicatedStorage.
-- **NovaUI_Example.lua** — example LocalScript for StarterPlayer > StarterPlayerScripts.
-- **NovaUI.txt** — copy-friendly text copy of the library.
-- **NovaUI_README.txt** — fuller API and installation notes.
+- **NovaUI.lua** — the library source.
+- **NovaUI_Example.lua** — a complete feature showcase, including a GitHub loadstring(game:HttpGet(...)) loader option.
+- **NovaUI.txt** — copy-friendly mirror of the library.
+- **NovaUI_README.txt** — extended API guide.
 
-## Quick start
+## Loading the library
 
-1. Create a ModuleScript named NovaUI in ReplicatedStorage and paste in NovaUI.lua.
-2. Create a LocalScript in StarterPlayer > StarterPlayerScripts.
-3. Copy the example script into that LocalScript, then press Play.
+### Roblox Studio
 
-Example usage:
+Create a ModuleScript named NovaUI in ReplicatedStorage, paste in NovaUI.lua, and use:
 
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local NovaUI = require(ReplicatedStorage:WaitForChild("NovaUI"))
 
+### GitHub Raw loader
+
+The example includes this executor-dependent option:
+
+    local NovaUI = loadstring(game:HttpGet(
+        "https://raw.githubusercontent.com/CuteDevNya/NovaUI/main/NovaUI.lua"
+    ))()
+
+This is not supported by an ordinary Roblox Studio LocalScript. Only run remote code you trust and only in experiences where you have permission to test it.
+
+## Quick example
+
     local Window = NovaUI:CreateWindow({
-        Title = "My GUI",
+        Title = "NovaUI",
         Theme = "Dark",
         AccentColor = Color3.fromRGB(104, 190, 255),
-        -- Optional: Logo = { Type = "Text", Text = "★" },
+        Resizable = true,
+        SnapToEdges = true,
     })
 
     local Main = Window:CreateTab("Main")
     Main:AddButton({
         Name = "Notify",
-        Tooltip = "This tooltip appears because it is explicitly configured.",
         Callback = function()
-            Window:Notify({
-                Title = "Saved",
-                Text = "Your changes have been saved.",
-                Type = "Success",
-                Duration = 3.5,
-            })
+            Window:NotifySuccess("Saved!", 3)
         end,
     })
 
-## Features
+    Window:RegisterCommand("Open appearance editor", function()
+        Window:OpenThemeEditor()
+    end, { "theme", "colors" })
 
-- Liquid-glass-inspired panels with transparency, gradients, outlines and highlights.
-- Animated tabs, buttons, toggles, sliders and dropdowns.
-- Text boxes, keybinds, color pickers, labels, paragraphs and sections.
-- Notifications with rounded, inset progress bars and accent indicators.
-- Tooltips are opt-in: set Tooltip = "..." on a control to show one. The window close/minimize controls have no default tooltips.
-- Optional text or image logo; the example includes a star-logo action.
-- Dark, Midnight, Ocean and Light themes; custom accent color and reduced-motion option.
-- Separate collapse-to-top-bar and collapse-to-square modes.
+Press Ctrl+K to open the Command Palette.
 
-The glass appearance is simulated with Roblox GUI transparency and styling. Standard ScreenGui elements do not provide a true per-panel blur of the 3D scene behind them.
+## What's new in 1.2.0
 
-NovaUI is intended for Roblox Studio experiences you own or are authorized to edit. A Pastebin URL is not a valid direct input to ordinary Roblox require().
+- Command Palette with search for registered commands and tabs; Ctrl+K shortcut.
+- Live Theme Editor for preset themes, accent colors, glass transparency, corner radius, and reduced motion.
+- Custom theme configuration through Window:SetThemeConfig({...}).
+- Notification convenience methods: NotifySuccess, NotifyWarning, NotifyError, and NotifyInfo; optional ShowCloseButton = true. Notifications stack and the oldest is removed when the maximum stack is exceeded.
+- New controls: AddMultiDropdown, AddProgressBar, AddRadioGroup, and AddKeybindList.
+- AddKeybindList updates when registered keybinds are changed.
+- Window snapping and bottom-right resize grip. Set Resizable = false or SnapToEdges = false to disable them.
+- Window:GetConfig() and Window:ApplyConfig(config) capture and restore current theme plus registered control states in memory.
+- Animation speed multiplier via AnimationScale / SetThemeConfig({ AnimationScale = 0.85 }).
+- Existing GUI features and APIs from 1.1.x remain available.
 
-## Version 1.1.3
+## Theme and config API
 
-- The compact icon now uses the window's top-left as its anchor point. Collapsing or restoring no longer pulls the window toward its center.
-- Window dragging is clamped to the active viewport, including while in bar or square mode. Dragging the icon moves the future expanded window's origin.
-- Width and height are recalculated when the viewport changes, and the current camera is rebound if Roblox replaces it.
-- Collapse/restore resizing uses non-overshooting easing to avoid briefly crossing screen edges.
-- Sidebar/content spacing adapts more aggressively to narrow screens.
+- Window:SetTheme("Dark") — Dark, Midnight, Ocean, or Light.
+- Window:SetAccentColor(Color3.fromRGB(...))
+- Window:SetThemeConfig({ Theme = "Ocean", AccentColor = Color3.fromRGB(100, 200, 255), WindowTransparency = 0.12, CornerRadius = 16, AnimationScale = 0.9, Colors = { Background = Color3.fromRGB(...) } })
+- Window:GetConfig() returns a Lua table with the theme and registered control values.
+- Window:ApplyConfig(savedConfig) restores that table. In the example, the save is intentionally kept in memory; persistence across sessions requires a suitable storage system.
+
+## Controls
+
+Existing controls: AddSection, AddLabel, AddParagraph, AddDivider, AddButton, AddToggle, AddSlider, AddDropdown, AddTextBox, AddKeybind, and AddColorPicker.
+
+New controls:
+
+    Tab:AddMultiDropdown({ Name = "Effects", Options = { "Bloom", "Shadows" }, Default = { "Bloom" }, Callback = function(values) end })
+
+    Tab:AddProgressBar({ Name = "Loading", Min = 0, Max = 100, Default = 20 })
+    -- Returns an object with Get() and Set(value).
+
+    Tab:AddRadioGroup({ Name = "Quality", Options = { "Low", "High" }, Default = "High", Callback = function(value) end })
+
+    Tab:AddKeybindList({ Name = "Keybinds", Height = 150 })
+
+Tooltips remain opt-in: set Tooltip = "..." on a control to show one.
+
+## Window API
+
+- Window:OpenCommandPalette(), Window:RegisterCommand(name, callback, keywords)
+- Window:OpenThemeEditor(), Window:SetThemeConfig(config)
+- Window:NotifySuccess(message, duration), NotifyWarning, NotifyError, NotifyInfo
+- Window:GetConfig(), Window:ApplyConfig(config)
+- Window:CollapseBar(), Window:CollapseToSquare(), Window:Expand(), Window:SetVisible(bool)
+- Window:SetLogo(value, "Text"), Window:SetLogo("rbxassetid://...", "Image")
+- Window:Close(), Window:Destroy()
+
+The glass appearance is simulated with Roblox GUI transparency, gradients, strokes and highlights. Standard ScreenGui elements do not provide a true per-panel blur of the 3D scene.
