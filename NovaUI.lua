@@ -243,6 +243,12 @@ local function addInteractive(button, window, stroke)
                     Color = window.AccentColor,
                 })
             end
+            local highlight = button.Parent and button.Parent:FindFirstChild("GroupHoverHighlight")
+            if highlight then
+                playTween(highlight, 0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
+                    BackgroundTransparency = 0.86,
+                })
+            end
         end
     end)
 
@@ -255,6 +261,12 @@ local function addInteractive(button, window, stroke)
                 Color = (window.Colors and window.Colors.Outline) or COLORS.Outline,
             })
         end
+        local highlight = button.Parent and button.Parent:FindFirstChild("GroupHoverHighlight")
+        if highlight then
+            playTween(highlight, 0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
+                BackgroundTransparency = 1,
+            })
+        end
     end)
 
     addConnection(window, button.InputBegan, function(input)
@@ -262,6 +274,12 @@ local function addInteractive(button, window, stroke)
             or input.UserInputType == Enum.UserInputType.Touch then
             pressed = true
             playTween(scale, 0.09, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Scale = 0.965 })
+            local highlight = button.Parent and button.Parent:FindFirstChild("GroupHoverHighlight")
+            if highlight then
+                playTween(highlight, 0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
+                    BackgroundTransparency = 0.78,
+                })
+            end
         end
     end)
 
@@ -279,14 +297,30 @@ end
 
 local function makeCard(parent, height, window)
     local colors = (window and window.Colors) or COLORS
+    local grouped = parent and parent:GetAttribute("NovaGroupContainer") == true
     local card = create("Frame", {
         Name = "ControlCard",
         Size = UDim2.new(1, -2, 0, height),
         BackgroundColor3 = colors.Card,
-        BackgroundTransparency = 0.28,
+        BackgroundTransparency = grouped and 1 or 0.28,
         BorderSizePixel = 0,
         ClipsDescendants = true,
     }, parent)
+    if grouped then
+        card:SetAttribute("NovaGroupedControl", true)
+        local highlight = create("Frame", {
+            Name = "GroupHoverHighlight",
+            Position = UDim2.new(0, 4, 0, 3),
+            Size = UDim2.new(1, -8, 1, -6),
+            BackgroundColor3 = colors.White,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Active = false,
+            ZIndex = 1,
+        }, card)
+        addCorner(highlight, 9)
+        return card, nil
+    end
     addCorner(card, 12)
     local stroke = addStroke(card, colors.Outline, 0.82, 1)
     return card, stroke
@@ -594,7 +628,17 @@ function WindowMethods:RegisterControl(name, kind, control)
         key = baseName .. " (" .. suffix .. ")"
         suffix = suffix + 1
     end
-    self._controls[key] = { Name = key, Type = tostring(kind or "Control"), Control = control }
+    local ownerTab = nil
+    if control.Instance then
+        for _, tab in ipairs(self._tabs or {}) do
+            if control.Instance == tab.Page or control.Instance:IsDescendantOf(tab.Page) then
+                ownerTab = tab
+                break
+            end
+        end
+    end
+    self._controls[key] = { Name = key, Type = tostring(kind or "Control"), Control = control, Tab = ownerTab }
+    if self.RefreshSearchTabs then self:RefreshSearchTabs() end
     return control
 end
 
@@ -1099,8 +1143,76 @@ function WindowMethods:Close()
     end
 end
 
-function WindowMethods:CreateTab(tabName)
+local function createInlineIcon(parent, iconConfig, size, colors)
+    if iconConfig == nil then return nil end
+    local config = type(iconConfig) == "table" and iconConfig or { Type = "Text", Text = tostring(iconConfig) }
+    local kind = string.lower(tostring(config.Type or (config.Image and "Image") or "Text"))
+    local value = kind == "image" and (config.Image or config.Value) or (config.Text or config.Symbol or config.Value)
+    if value == nil or tostring(value) == "" then return nil end
+    value = tostring(value)
+    if kind == "image" and value:match("^%d+$") then value = "rbxassetid://" .. value end
+
+    local backgroundColor = config.BackgroundColor
+    if typeof(config.Background) == "Color3" then
+        backgroundColor = config.Background
+    elseif config.Background == true and typeof(backgroundColor) ~= "Color3" then
+        backgroundColor = colors.CardHover
+    end
+    if typeof(backgroundColor) ~= "Color3" then backgroundColor = nil end
+
+    local holder = create("Frame", {
+        Name = "InlineIcon",
+        Size = UDim2.fromOffset(size, size),
+        BackgroundColor3 = backgroundColor or colors.Card,
+        BackgroundTransparency = backgroundColor and math.clamp(tonumber(config.BackgroundTransparency) or 0.12, 0, 1) or 1,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+    }, parent)
+    holder:SetAttribute("NovaIconHasBackground", backgroundColor ~= nil)
+    if backgroundColor then addCorner(holder, tonumber(config.CornerRadius) or math.floor(size * 0.28)) end
+
+    if kind == "image" then
+        create("ImageLabel", {
+            Name = "IconImage",
+            BackgroundTransparency = 1,
+            Image = value,
+            ScaleType = Enum.ScaleType.Fit,
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.new(1, -4, 1, -4),
+            BorderSizePixel = 0,
+        }, holder)
+    else
+        createText(holder, value, tonumber(config.TextSize) or math.max(12, math.floor(size * 0.62)), colors.Text, {
+            Name = "IconText",
+            Size = UDim2.fromScale(1, 1),
+            Font = config.Font or Enum.Font.GothamBold,
+            TextXAlignment = Enum.TextXAlignment.Center,
+            TextYAlignment = Enum.TextYAlignment.Center,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+        })
+    end
+    return holder
+end
+
+local function addLeadingIcon(parent, iconConfig, window, centerY, size)
+    local icon = createInlineIcon(parent, iconConfig, size or 22, window.Colors)
+    if not icon then return 0 end
+    icon.AnchorPoint = Vector2.new(0, 0.5)
+    icon.Position = UDim2.new(0, 12, 0, centerY or 26)
+    return (size or 22) + 5
+end
+
+function WindowMethods:CreateTab(tabName, options)
     assert(not self._destroyed, "Cannot add a tab to a destroyed NovaUI window")
+    if type(tabName) == "table" then
+        options = tabName
+        tabName = options.Name
+    end
+    options = options or {}
+    if options.Type or options.Image or options.Text or options.Symbol then
+        options = { Icon = options }
+    end
     tabName = tostring(tabName or ("Tab " .. tostring(#self._tabs + 1)))
 
     local tabButton = create("TextButton", {
@@ -1126,10 +1238,16 @@ function WindowMethods:CreateTab(tabName)
     }, tabButton)
     addCorner(indicator, 3)
 
+    local tabIcon = createInlineIcon(tabButton, options.Icon, 22, self.Colors)
+    local tabTextOffset = tabIcon and 29 or 0
+    if tabIcon then
+        tabIcon.AnchorPoint = Vector2.new(0, 0.5)
+        tabIcon.Position = UDim2.new(0, 10, 0.5, 0)
+    end
     local label = createText(tabButton, tabName, 13, self.Colors.Muted, {
         Name = "TabLabel",
-        Position = UDim2.new(0, 13, 0, 0),
-        Size = UDim2.new(1, -20, 1, 0),
+        Position = UDim2.new(0, 13 + tabTextOffset, 0, 0),
+        Size = UDim2.new(1, -20 - tabTextOffset, 1, 0),
         Font = Enum.Font.GothamMedium,
         TextTruncate = Enum.TextTruncate.AtEnd,
     })
@@ -1166,6 +1284,8 @@ function WindowMethods:CreateTab(tabName)
         Button = tabButton,
         Indicator = indicator,
         Label = label,
+        Icon = tabIcon,
+        IconConfig = options.Icon,
         Page = page,
         Layout = layout,
     }, TabMethods)
@@ -1174,7 +1294,6 @@ function WindowMethods:CreateTab(tabName)
     self:RegisterCommand("Open tab: " .. tabName, function()
         self:SelectTab(tab)
         self:SetVisible(true)
-        self:CloseCommandPalette()
     end, { "tab", tabName })
 
     addConnection(self, layout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
@@ -2383,6 +2502,7 @@ function WindowMethods:RegisterCommand(name, callback, keywords)
         Callback = callback,
         Keywords = type(keywords) == "table" and table.concat(keywords, " ") or tostring(keywords or ""),
     })
+    if self.RefreshSearchTabs then self:RefreshSearchTabs() end
 end
 
 function WindowMethods:CloseCommandPalette()
