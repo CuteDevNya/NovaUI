@@ -327,8 +327,15 @@ function WindowMethods:SetTitle(title, subtitle)
         self._subtitleLabel.Text = tostring(subtitle)
         self._subtitleLabel.Visible = subtitle ~= ""
         self._hasSubtitle = subtitle ~= ""
-        self._titleLabel.Position = UDim2.new(0, self._logoConfig and 54 or 18, 0, self._hasSubtitle and 5 or 0)
-        self._titleLabel.Size = UDim2.new(1, self._logoConfig and -164 or -128, 0, self._hasSubtitle and 27 or self._topbarHeight)
+        local width = self._expandedSize and self._expandedSize.X.Offset or self._root.AbsoluteSize.X
+        local hasLogo = self._logoConfig ~= nil
+        local titleX = hasLogo and 54 or 18
+        local titlePadding = math.min(hasLogo and 164 or 128, math.max(0, width - 1))
+        local subtitlePadding = math.min(hasLogo and 170 or 135, math.max(0, width - 1))
+        self._titleLabel.Position = UDim2.new(0, titleX, 0, self._hasSubtitle and 5 or 0)
+        self._titleLabel.Size = UDim2.new(1, -titlePadding, 0, self._hasSubtitle and 27 or self._topbarHeight)
+        self._subtitleLabel.Position = UDim2.new(0, hasLogo and 55 or 19, 0, 31)
+        self._subtitleLabel.Size = UDim2.new(1, -subtitlePadding, 0, 17)
     end
 end
 
@@ -681,13 +688,17 @@ function WindowMethods:SetLogo(logo, logoType)
         self._logoFrame.Position = UDim2.new(0, 15, 0.5, 0)
         self._logoFrame.AnchorPoint = Vector2.new(0, 0.5)
     end
+    local width = self._expandedSize and self._expandedSize.X.Offset or self._root.AbsoluteSize.X
+    local hasLogo = value ~= nil
+    local titlePadding = math.min(hasLogo and 164 or 128, math.max(0, width - 1))
+    local subtitlePadding = math.min(hasLogo and 170 or 135, math.max(0, width - 1))
     if self._titleLabel then
-        self._titleLabel.Position = UDim2.new(0, value and 54 or 18, 0, self._hasSubtitle and 5 or 0)
-        self._titleLabel.Size = UDim2.new(1, value and -164 or -128, 0, self._hasSubtitle and 27 or self._topbarHeight)
+        self._titleLabel.Position = UDim2.new(0, hasLogo and 54 or 18, 0, self._hasSubtitle and 5 or 0)
+        self._titleLabel.Size = UDim2.new(1, -titlePadding, 0, self._hasSubtitle and 27 or self._topbarHeight)
     end
     if self._subtitleLabel then
-        self._subtitleLabel.Position = UDim2.new(0, value and 55 or 19, 0, 31)
-        self._subtitleLabel.Size = UDim2.new(1, value and -170 or -135, 0, 17)
+        self._subtitleLabel.Position = UDim2.new(0, hasLogo and 55 or 19, 0, 31)
+        self._subtitleLabel.Size = UDim2.new(1, -subtitlePadding, 0, 17)
     end
     local restoreLogo = self._squareRestoreButton and self._squareRestoreButton:FindFirstChild("LogoVisual")
     if restoreLogo then restoreLogo:Destroy() end
@@ -2302,6 +2313,14 @@ function NovaUI:CreateWindow(config)
             window._compactSizeBase,
             math.max(1, math.min(viewportNow.X, viewportNow.Y) - 16)
         )
+
+        -- Recompute label widths on each resize so UDim2 offsets never become
+        -- negative when switching from desktop to a narrow mobile viewport.
+        local hasLogo = window._logoFrame ~= nil
+        local titlePadding = math.min(hasLogo and 164 or 128, math.max(0, resizedWidth - 1))
+        local subtitlePadding = math.min(hasLogo and 170 or 135, math.max(0, resizedWidth - 1))
+        window._titleLabel.Size = UDim2.new(1, -titlePadding, 0, window._hasSubtitle and 27 or topbarHeight)
+        window._subtitleLabel.Size = UDim2.new(1, -subtitlePadding, 0, 17)
 
         local responsiveSidebarWidth = math.floor(math.min(
             resizedWidth * 0.42,
