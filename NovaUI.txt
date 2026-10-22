@@ -3168,12 +3168,6 @@ function NovaUI:CreateWindow(config)
     end
     screenGui:SetAttribute("NovaAnimationScale", window._animationScale)
     root.BackgroundTransparency = window._windowTransparency
-    window:RegisterCommand("Open appearance tab", function()
-        if window._themeEditorTab then
-            window:SelectTab(window._themeEditorTab)
-            window:SetVisible(true)
-        end
-    end, "theme appearance colors")
     window:RegisterCommand("Open search tab", function() window:OpenSearchTab() end, "search commands tabs settings")
     window:RegisterCommand("Collapse to top bar", function() window:CollapseBar() end, "minimize collapse")
     window:RegisterCommand("Collapse to icon", function() window:CollapseToSquare() end, "minimize square")
