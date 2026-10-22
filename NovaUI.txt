@@ -1,5 +1,5 @@
 --[[
-    NovaUI 1.1.3 - Liquid Glass GUI Library for Roblox
+    NovaUI 1.2.0 - Liquid Glass GUI Library for Roblox
     Intended for a LocalScript + ModuleScript in an experience you own or are authorized to edit.
 
     Quick start:
@@ -175,6 +175,7 @@ local function playTween(object, duration, easingStyle, easingDirection, propert
     end
 
     local ancestor = object
+    local animationScale = 1
     while ancestor do
         if ancestor:GetAttribute("NovaReducedMotion") == true then
             for key, value in pairs(properties or {}) do
@@ -184,11 +185,15 @@ local function playTween(object, duration, easingStyle, easingDirection, propert
             end
             return nil
         end
+        local scale = ancestor:GetAttribute("NovaAnimationScale")
+        if type(scale) == "number" and scale > 0 then
+            animationScale = scale
+        end
         ancestor = ancestor.Parent
     end
 
     local info = TweenInfo.new(
-        duration or 0.2,
+        (duration or 0.2) * animationScale,
         easingStyle or Enum.EasingStyle.Quart,
         easingDirection or Enum.EasingDirection.Out
     )
@@ -456,6 +461,137 @@ function WindowMethods:SetAccentColor(color)
     self._lastThemeAccent = color
 end
 
+function WindowMethods:SetThemeConfig(config)
+    if self._destroyed or type(config) ~= "table" then
+        return
+    end
+
+    local oldPalette = self.Colors or COLORS
+    local themeName = normalizeThemeName(config.Theme or self.Theme or "Dark")
+    local newPalette = copyTheme(themeName)
+    local overrides = type(config.Colors) == "table" and config.Colors or self._customColors or {}
+    for key, value in pairs(overrides) do
+        if newPalette[key] ~= nil and typeof(value) == "Color3" then
+            newPalette[key] = value
+        end
+    end
+
+    local accent = typeof(config.AccentColor) == "Color3" and config.AccentColor or self.AccentColor
+    newPalette.Accent = accent
+
+    for _, descendant in ipairs(self._screenGui:GetDescendants()) do
+        if descendant:IsA("GuiObject") then
+            local role = colorRole(descendant.BackgroundColor3, oldPalette) or colorRole(descendant.BackgroundColor3, COLORS)
+            if role and newPalette[role] then
+                descendant.BackgroundColor3 = newPalette[role]
+            elseif descendant.BackgroundColor3 == self._lastThemeAccent then
+                descendant.BackgroundColor3 = accent
+            end
+        end
+        if descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
+            local role = colorRole(descendant.TextColor3, oldPalette) or colorRole(descendant.TextColor3, COLORS)
+            if role and newPalette[role] then
+                descendant.TextColor3 = newPalette[role]
+            elseif descendant.TextColor3 == self._lastThemeAccent then
+                descendant.TextColor3 = accent
+            end
+        end
+        if descendant:IsA("UIStroke") then
+            local role = colorRole(descendant.Color, oldPalette) or colorRole(descendant.Color, COLORS)
+            if role and newPalette[role] then
+                descendant.Color = newPalette[role]
+            elseif descendant.Color == self._lastThemeAccent then
+                descendant.Color = accent
+            end
+        end
+        if descendant:IsA("ScrollingFrame") then
+            descendant.ScrollBarImageColor3 = accent
+        end
+    end
+
+    self.Colors = newPalette
+    self.Theme = themeName
+    self.AccentColor = accent
+    self._lastThemeAccent = accent
+
+    if self._root then
+        local transparency = tonumber(config.WindowTransparency)
+        if transparency ~= nil then
+            self._windowTransparency = math.clamp(transparency, 0, 0.65)
+            self._root.BackgroundTransparency = self._windowTransparency
+        elseif self._windowTransparency ~= nil then
+            self._root.BackgroundTransparency = self._windowTransparency
+        end
+
+        local radius = tonumber(config.CornerRadius)
+        if radius ~= nil then
+            self._cornerRadius = math.clamp(radius, 6, 24)
+            for _, descendant in ipairs(self._screenGui:GetDescendants()) do
+                if descendant:IsA("UICorner") then
+                    descendant.CornerRadius = UDim.new(0, self._cornerRadius)
+                end
+            end
+        end
+    end
+
+    local animationScale = tonumber(config.AnimationScale)
+    if animationScale ~= nil then
+        self._animationScale = math.clamp(animationScale, 0.45, 1.8)
+        self._screenGui:SetAttribute("NovaAnimationScale", self._animationScale)
+    end
+    self._customColors = overrides
+
+    local rootGradient = self._root and self._root:FindFirstChild("WindowGradient")
+    if rootGradient and rootGradient:IsA("UIGradient") then
+        rootGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, newPalette.BackgroundLight),
+            ColorSequenceKeypoint.new(0.52, newPalette.Background),
+            ColorSequenceKeypoint.new(1, newPalette.Card),
+        })
+    end
+    local glintGradient = self._root and self._root:FindFirstChild("GlassGlintGradient", true)
+    if glintGradient and glintGradient:IsA("UIGradient") then
+        glintGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, accent),
+            ColorSequenceKeypoint.new(0.5, newPalette.White),
+            ColorSequenceKeypoint.new(1, accent),
+        })
+    end
+    if self._rootStroke then self._rootStroke.Color = accent end
+end
+
+function WindowMethods:NotifySuccess(message, duration, title)
+    return self:Notify({ Title = title or "Success", Text = tostring(message or ""), Type = "Success", Duration = duration })
+end
+
+function WindowMethods:NotifyWarning(message, duration, title)
+    return self:Notify({ Title = title or "Warning", Text = tostring(message or ""), Type = "Warning", Duration = duration })
+end
+
+function WindowMethods:NotifyError(message, duration, title)
+    return self:Notify({ Title = title or "Error", Text = tostring(message or ""), Type = "Error", Duration = duration })
+end
+
+function WindowMethods:NotifyInfo(message, duration, title)
+    return self:Notify({ Title = title or "Info", Text = tostring(message or ""), Type = "Info", Duration = duration })
+end
+
+function WindowMethods:RegisterControl(name, kind, control)
+    if type(control) ~= "table" or type(control.Get) ~= "function" or type(control.Set) ~= "function" then
+        return control
+    end
+    self._controls = self._controls or {}
+    local baseName = tostring(name or (kind or "Control"))
+    local key = baseName
+    local suffix = 2
+    while self._controls[key] do
+        key = baseName .. " (" .. suffix .. ")"
+        suffix = suffix + 1
+    end
+    self._controls[key] = { Name = key, Type = tostring(kind or "Control"), Control = control }
+    return control
+end
+
 function WindowMethods:SetReducedMotion(enabled)
     if self._screenGui then
         self._screenGui:SetAttribute("NovaReducedMotion", enabled == true)
@@ -501,6 +637,7 @@ function WindowMethods:CollapseBar()
     self._barCollapseButton.Visible = true
     self._squareCollapseButton.Visible = true
     self._squareRestoreButton.Visible = false
+    if self._resizeGrip then self._resizeGrip.Visible = false end
 
     local viewport = currentViewportSize()
     local targetPosition = clampTopLeft(
@@ -546,6 +683,7 @@ function WindowMethods:CollapseToSquare()
     self._squareCollapseButton.Visible = false
     self._squareRestoreButton.Visible = true
     self._squareRestoreButton.Size = UDim2.fromScale(1, 1)
+    if self._resizeGrip then self._resizeGrip.Visible = false end
 
     -- Clamp using the full window size, not the tiny icon, so the expanded GUI
     -- can be restored from this exact top-left origin without going off-screen.
@@ -599,6 +737,7 @@ function WindowMethods:Expand()
     self._barCollapseButton.Visible = true
     self._squareCollapseButton.Visible = true
     self._squareRestoreButton.Visible = false
+    if self._resizeGrip then self._resizeGrip.Visible = self._resizable end
 
     -- Quad easing avoids overshooting the screen bounds during the resize.
     local tween = playTween(self._root, 0.34, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
@@ -780,6 +919,28 @@ function WindowMethods:Notify(config, message, duration)
     }, self._screenGui)
     addCorner(toast, 13)
     local outline = addStroke(toast, accent, 0.35, 1.1)
+    local record = { Frame = toast, Stroke = outline }
+    if config.ShowCloseButton == true then
+        local closeToast = create("TextButton", {
+            Name = "NotificationClose",
+            AnchorPoint = Vector2.new(1, 0),
+            Position = UDim2.new(1, -8, 0, 7),
+            Size = UDim2.fromOffset(19, 19),
+            BackgroundColor3 = self.Colors.CardHover,
+            BackgroundTransparency = 0.1,
+            BorderSizePixel = 0,
+            Text = "×",
+            TextColor3 = self.Colors.Text,
+            TextSize = 15,
+            Font = Enum.Font.GothamBold,
+            AutoButtonColor = false,
+            ZIndex = 205,
+        }, toast)
+        addCorner(closeToast, 7)
+        addConnection(self, closeToast.Activated, function()
+            if record and record.Dismiss then record.Dismiss() end
+        end)
+    end
     local accentBar = create("Frame", {
         Name = "NotificationAccent",
         Position = UDim2.new(0, 7, 0, 14),
@@ -817,7 +978,6 @@ function WindowMethods:Notify(config, message, duration)
     }, toast)
     addCorner(progress, 3)
 
-    local record = { Frame = toast, Stroke = outline }
     table.insert(self._notifications, record)
     while #self._notifications > 4 do
         local oldest = table.remove(self._notifications, 1)
@@ -999,6 +1159,11 @@ function WindowMethods:CreateTab(tabName)
     }, TabMethods)
 
     table.insert(self._tabs, tab)
+    self:RegisterCommand("Open tab: " .. tabName, function()
+        self:SelectTab(tab)
+        self:SetVisible(true)
+        self:CloseCommandPalette()
+    end, { "tab", tabName })
 
     addConnection(self, layout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
         if page.Parent then
@@ -1165,15 +1330,13 @@ function TabMethods:AddToggle(config)
     end)
     attachTooltip(hitbox, self.Window, config.Tooltip)
 
-    return {
+    local control = {
         Instance = card,
-        Get = function()
-            return state
-        end,
-        Set = function(_, value, silent)
-            setState(value, silent == true)
-        end,
+        Get = function() return state end,
+        Set = function(_, value, silent) setState(value, silent == true) end,
     }
+    self.Window:RegisterControl(config.Name or "Toggle", "Toggle", control)
+    return control
 end
 
 function TabMethods:AddSlider(config)
@@ -1313,15 +1476,13 @@ function TabMethods:AddSlider(config)
     end)
     attachTooltip(card, self.Window, config.Tooltip)
 
-    return {
+    local control = {
         Instance = card,
-        Get = function()
-            return value
-        end,
-        Set = function(_, newValue, silent)
-            setValue(newValue, silent ~= true)
-        end,
+        Get = function() return value end,
+        Set = function(_, newValue, silent) setValue(newValue, silent ~= true) end,
     }
+    self.Window:RegisterControl(config.Name or "Slider", "Slider", control)
+    return control
 end
 
 function TabMethods:AddDropdown(config)
@@ -1482,22 +1643,292 @@ function TabMethods:AddDropdown(config)
     end)
     attachTooltip(header, self.Window, config.Tooltip)
 
-    return {
+    local control = {
         Instance = card,
-        Get = function()
-            return selected
-        end,
+        Get = function() return selected end,
         Set = function(_, newValue, silent)
             selected = tostring(newValue)
             selectedLabel.Text = selected
             setExpanded(false)
-            if not silent then
-                safeCallback(config.Callback, selected)
-            end
+            if not silent then safeCallback(config.Callback, selected) end
         end,
     }
+    self.Window:RegisterControl(config.Name or "Dropdown", "Dropdown", control)
+    return control
 end
 
+
+function TabMethods:AddMultiDropdown(config)
+    config = config or {}
+    local optionStrings = {}
+    for _, option in ipairs(config.Options or {}) do table.insert(optionStrings, tostring(option)) end
+    local selectedSet = {}
+    if type(config.Default) == "table" then
+        for _, value in ipairs(config.Default) do selectedSet[tostring(value)] = true end
+    end
+    local card, stroke = makeCard(self.Page, 50, self.Window)
+    card.Name = "MultiDropdownCard"
+    card.ClipsDescendants = true
+    local header = create("TextButton", {
+        Name = "MultiDropdownHeader", Size = UDim2.new(1, 0, 0, 50),
+        BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false,
+    }, card)
+    createText(card, config.Name or "Multi-select", 13, self.Window.Colors.Text, {
+        Position = UDim2.new(0, 14, 0, 0), Size = UDim2.new(0.48, -10, 0, 50),
+        Font = Enum.Font.GothamMedium, TextTruncate = Enum.TextTruncate.AtEnd,
+    })
+    local selectedLabel = createText(card, "None selected", 11, self.Window.AccentColor, {
+        Position = UDim2.new(0.48, 0, 0, 0), Size = UDim2.new(0.52, -35, 0, 50),
+        TextXAlignment = Enum.TextXAlignment.Right, Font = Enum.Font.GothamMedium,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    })
+    local arrow = create("Frame", {
+        Name = "MultiChevron", AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(1, -20, 0, 25), Size = UDim2.fromOffset(12, 12),
+        BackgroundTransparency = 1, BorderSizePixel = 0,
+    }, card)
+    local left = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, -3, 0.5, -1),
+        Size = UDim2.fromOffset(7, 2), Rotation = 45,
+        BackgroundColor3 = self.Window.Colors.Muted, BorderSizePixel = 0,
+    }, arrow)
+    addCorner(left, 2)
+    local right = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 2, 0.5, -1),
+        Size = UDim2.fromOffset(7, 2), Rotation = -45,
+        BackgroundColor3 = self.Window.Colors.Muted, BorderSizePixel = 0,
+    }, arrow)
+    addCorner(right, 2)
+
+    local optionHeight = 30
+    local visibleOptions = math.min(#optionStrings, 5)
+    local optionsScroll = create("ScrollingFrame", {
+        Name = "MultiOptions", Position = UDim2.new(0, 10, 0, 52),
+        Size = UDim2.new(1, -20, 0, visibleOptions * optionHeight),
+        BackgroundTransparency = 1, BorderSizePixel = 0,
+        ScrollBarThickness = 3, ScrollBarImageColor3 = self.Window.AccentColor,
+        CanvasSize = UDim2.new(0, 0, 0, #optionStrings * optionHeight),
+        Visible = false, ZIndex = 5,
+    }, card)
+    create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, optionsScroll)
+    local buttons = {}
+    local expanded = false
+
+    local function getSelected()
+        local result = {}
+        for _, option in ipairs(optionStrings) do
+            if selectedSet[option] then table.insert(result, option) end
+        end
+        return result
+    end
+    local function refresh()
+        local values = getSelected()
+        selectedLabel.Text = #values == 0 and "None selected" or table.concat(values, ", ")
+        for _, option in ipairs(optionStrings) do
+            local button = buttons[option]
+            if button then
+                button.Text = (selectedSet[option] and "✓  " or "＋  ") .. option
+                button.TextColor3 = selectedSet[option] and self.Window.AccentColor or self.Window.Colors.Text
+            end
+        end
+    end
+    local function setExpanded(value)
+        expanded = value
+        optionsScroll.Visible = expanded
+        playTween(arrow, 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Rotation = expanded and 180 or 0 })
+        playTween(card, 0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
+            Size = UDim2.new(1, -2, 0, expanded and (58 + visibleOptions * optionHeight) or 50),
+        })
+    end
+    for index, option in ipairs(optionStrings) do
+        local optionValue = option
+        local button = create("TextButton", {
+            Name = "MultiOption_" .. index, Size = UDim2.new(1, -4, 0, optionHeight),
+            BackgroundColor3 = self.Window.Colors.CardHover, BackgroundTransparency = 0.42,
+            BorderSizePixel = 0, Text = option, TextColor3 = self.Window.Colors.Text,
+            TextSize = 12, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left,
+            AutoButtonColor = false, LayoutOrder = index, ZIndex = 6,
+        }, optionsScroll)
+        addCorner(button, 7)
+        create("UIPadding", { PaddingLeft = UDim.new(0, 9) }, button)
+        buttons[option] = button
+        addInteractive(button, self.Window)
+        addConnection(self.Window, button.Activated, function()
+            selectedSet[optionValue] = not selectedSet[optionValue] or nil
+            refresh()
+            safeCallback(config.Callback, getSelected())
+        end)
+    end
+    addInteractive(header, self.Window, stroke)
+    addConnection(self.Window, header.Activated, function() setExpanded(not expanded) end)
+    attachTooltip(header, self.Window, config.Tooltip)
+    refresh()
+    local control = {
+        Instance = card,
+        Get = function() return getSelected() end,
+        Set = function(_, values, silent)
+            selectedSet = {}
+            if type(values) == "table" then
+                for _, item in ipairs(values) do
+                    local value = tostring(item)
+                    for _, known in ipairs(optionStrings) do
+                        if value == known then selectedSet[value] = true end
+                    end
+                end
+            end
+            refresh()
+            if not silent then safeCallback(config.Callback, getSelected()) end
+        end,
+    }
+    self.Window:RegisterControl(config.Name or "Multi-select", "MultiDropdown", control)
+    return control
+end
+
+function TabMethods:AddProgressBar(config)
+    config = config or {}
+    local minimum = tonumber(config.Min) or 0
+    local maximum = tonumber(config.Max) or 100
+    if maximum <= minimum then maximum = minimum + 1 end
+    local value = math.clamp(tonumber(config.Default) or minimum, minimum, maximum)
+    local card = makeCard(self.Page, 64, self.Window)
+    card.Name = "ProgressBarCard"
+    local title = createText(card, config.Name or "Progress", 12, self.Window.Colors.Text, {
+        Position = UDim2.new(0, 13, 0, 4), Size = UDim2.new(1, -80, 0, 22),
+        Font = Enum.Font.GothamMedium, TextTruncate = Enum.TextTruncate.AtEnd,
+    })
+    local valueLabel = createText(card, "0%", 11, self.Window.AccentColor, {
+        Position = UDim2.new(1, -62, 0, 4), Size = UDim2.fromOffset(48, 22),
+        TextXAlignment = Enum.TextXAlignment.Right, Font = Enum.Font.GothamBold,
+    })
+    local track = create("Frame", {
+        Name = "ProgressTrack", Position = UDim2.new(0, 13, 0, 38),
+        Size = UDim2.new(1, -26, 0, 8), BackgroundColor3 = self.Window.Colors.Off,
+        BorderSizePixel = 0,
+    }, card)
+    addCorner(track, 8)
+    local fill = create("Frame", {
+        Name = "ProgressFill", Size = UDim2.new(0, 0, 1, 0),
+        BackgroundColor3 = self.Window.AccentColor, BorderSizePixel = 0,
+    }, track)
+    addCorner(fill, 8)
+    local function setValue(newValue, fireCallback)
+        value = math.clamp(tonumber(newValue) or minimum, minimum, maximum)
+        local alpha = (value - minimum) / (maximum - minimum)
+        valueLabel.Text = string.format("%d%%", math.floor(alpha * 100 + 0.5))
+        playTween(fill, 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
+            Size = UDim2.new(alpha, 0, 1, 0),
+        })
+        if fireCallback then safeCallback(config.Callback, value) end
+    end
+    setValue(value, false)
+    local control = {
+        Instance = card,
+        Get = function() return value end,
+        Set = function(_, newValue, silent) setValue(newValue, silent ~= true) end,
+    }
+    self.Window:RegisterControl(config.Name or "Progress", "ProgressBar", control)
+    return control
+end
+
+function TabMethods:AddRadioGroup(config)
+    config = config or {}
+    local options = {}
+    for _, option in ipairs(config.Options or {}) do table.insert(options, tostring(option)) end
+    local selected = tostring(config.Default or options[1] or "")
+    local card = makeCard(self.Page, 40 + #options * 31, self.Window)
+    card.Name = "RadioGroupCard"
+    createText(card, config.Name or "Choose one", 12, self.Window.Colors.Text, {
+        Position = UDim2.new(0, 13, 0, 2), Size = UDim2.new(1, -26, 0, 25),
+        Font = Enum.Font.GothamMedium,
+    })
+    local list = create("Frame", {
+        Name = "RadioOptions", Position = UDim2.new(0, 9, 0, 29),
+        Size = UDim2.new(1, -18, 0, #options * 31),
+        BackgroundTransparency = 1, BorderSizePixel = 0,
+    }, card)
+    create("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+    local buttons = {}
+    local function setValue(newValue, silent)
+        selected = tostring(newValue)
+        for _, option in ipairs(options) do
+            local button = buttons[option]
+            if button then
+                local active = option == selected
+                button.Text = (active and "●  " or "○  ") .. option
+                button.TextColor3 = active and self.Window.AccentColor or self.Window.Colors.Text
+                button.BackgroundTransparency = active and 0.16 or 0.42
+            end
+        end
+        if not silent then safeCallback(config.Callback, selected) end
+    end
+    for index, option in ipairs(options) do
+        local optionValue = option
+        local button = create("TextButton", {
+            Name = "Radio_" .. index, Size = UDim2.new(1, -3, 0, 28),
+            BackgroundColor3 = self.Window.Colors.CardHover, BackgroundTransparency = 0.42,
+            BorderSizePixel = 0, Text = option, TextColor3 = self.Window.Colors.Text,
+            TextSize = 12, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left,
+            AutoButtonColor = false, LayoutOrder = index,
+        }, list)
+        addCorner(button, 8)
+        create("UIPadding", { PaddingLeft = UDim.new(0, 9) }, button)
+        buttons[option] = button
+        addInteractive(button, self.Window)
+        addConnection(self.Window, button.Activated, function() setValue(optionValue, false) end)
+    end
+    setValue(selected, true)
+    attachTooltip(card, self.Window, config.Tooltip)
+    local control = {
+        Instance = card,
+        Get = function() return selected end,
+        Set = function(_, value, silent) setValue(value, silent == true) end,
+    }
+    self.Window:RegisterControl(config.Name or "Choose one", "RadioGroup", control)
+    return control
+end
+
+function TabMethods:AddKeybindList(config)
+    config = config or {}
+    local height = tonumber(config.Height) or 154
+    local card = makeCard(self.Page, height, self.Window)
+    card.Name = "KeybindListCard"
+    createText(card, config.Name or "Keybinds", 12, self.Window.Colors.Text, {
+        Position = UDim2.new(0, 13, 0, 3), Size = UDim2.new(1, -26, 0, 22),
+        Font = Enum.Font.GothamBold,
+    })
+    local list = create("ScrollingFrame", {
+        Name = "KeybindList", Position = UDim2.new(0, 12, 0, 28),
+        Size = UDim2.new(1, -24, 1, -34), BackgroundTransparency = 1,
+        BorderSizePixel = 0, ScrollBarThickness = 2, ScrollBarImageColor3 = self.Window.AccentColor,
+        AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(0, 0, 0, 0),
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+    }, card)
+    create("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+    local function render()
+        for _, child in ipairs(list:GetChildren()) do
+            if child:IsA("TextLabel") then child:Destroy() end
+        end
+        local index = 0
+        for _, entry in ipairs(self.Window._keybindRegistry or {}) do
+            index = index + 1
+            local key = entry.Get()
+            local keyName = (typeof(key) == "EnumItem" and key.Name ~= "Unknown") and key.Name or "None"
+            createText(list, entry.Name .. "   ·   " .. keyName, 11, self.Window.Colors.Muted, {
+                Name = "KeybindRow_" .. index, Size = UDim2.new(1, -4, 0, 21),
+                Font = Enum.Font.Gotham, LayoutOrder = index, TextTruncate = Enum.TextTruncate.AtEnd,
+            })
+        end
+        if index == 0 then
+            createText(list, "No keybinds registered yet", 11, self.Window.Colors.Muted, {
+                Name = "KeybindEmpty", Size = UDim2.new(1, -4, 0, 21), Font = Enum.Font.Gotham,
+            })
+        end
+    end
+    self.Window._keybindLists = self.Window._keybindLists or {}
+    table.insert(self.Window._keybindLists, render)
+    render()
+    return { Instance = card, Refresh = render }
+end
 
 -- AddTooltip can be attached to any GUI object without requiring special fonts or glyphs.
 attachTooltip = function(target, window, tooltipText)
@@ -1625,7 +2056,7 @@ function TabMethods:AddTextBox(config)
         end
     end)
     attachTooltip(textBox, self.Window, config.Tooltip)
-    return {
+    local control = {
         Instance = card,
         TextBox = textBox,
         Get = function() return textBox.Text end,
@@ -1634,6 +2065,8 @@ function TabMethods:AddTextBox(config)
             if fireCallback then safeCallback(config.Callback, textBox.Text, false) end
         end,
     }
+    self.Window:RegisterControl(config.Name or "Text input", "TextBox", control)
+    return control
 end
 
 local function normalizeKeyCode(value)
@@ -1684,6 +2117,10 @@ function TabMethods:AddKeybind(config)
             Transparency = 0.18,
         })
     end)
+    local keybindRecord = { Name = config.Name or "Keybind", Get = function() return keyCode end }
+    self.Window._keybindRegistry = self.Window._keybindRegistry or {}
+    table.insert(self.Window._keybindRegistry, keybindRecord)
+
     addConnection(self.Window, UserInputService.InputBegan, function(input, gameProcessed)
         if listening then
             if input.UserInputType == Enum.UserInputType.Keyboard then
@@ -1697,6 +2134,7 @@ function TabMethods:AddKeybind(config)
                     self.Window._listeningKeybind = false
                     hitbox.Text = keyCode.Name
                     safeCallback(config.Callback, keyCode)
+                    self.Window:RefreshKeybindLists()
                 end
                 playTween(keyStroke, 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
                     Color = self.Window.Colors.Outline,
@@ -1711,15 +2149,19 @@ function TabMethods:AddKeybind(config)
         end
     end)
     attachTooltip(hitbox, self.Window, config.Tooltip)
-    return {
+    local control = {
         Instance = card,
         Get = function() return keyCode end,
         Set = function(_, value, silent)
             keyCode = normalizeKeyCode(value) or Enum.KeyCode.Unknown
             hitbox.Text = keyCode == Enum.KeyCode.Unknown and "None" or keyCode.Name
+            self.Window:RefreshKeybindLists()
             if not silent then safeCallback(config.Callback, keyCode) end
         end,
     }
+    self.Window:RegisterControl(config.Name or "Keybind", "Keybind", control)
+    self.Window:RefreshKeybindLists()
+    return control
 end
 
 function TabMethods:AddColorPicker(config)
@@ -1855,7 +2297,7 @@ function TabMethods:AddColorPicker(config)
     addInteractive(header, self.Window, stroke)
     addConnection(self.Window, header.Activated, function() setExpanded(not expanded) end)
     attachTooltip(header, self.Window, config.Tooltip)
-    return {
+    local control = {
         Instance = card,
         Get = function() return currentColor end,
         Set = function(_, value, silent)
@@ -1863,17 +2305,321 @@ function TabMethods:AddColorPicker(config)
             r = math.floor(value.R * 255 + 0.5)
             g = math.floor(value.G * 255 + 0.5)
             b = math.floor(value.B * 255 + 0.5)
-            for _, control in ipairs(channelControls) do
-                local channelValue = control.Index == 1 and r or (control.Index == 2 and g or b)
-                control.Value = channelValue
-                control.ValueLabel.Text = tostring(channelValue)
-                playTween(control.Fill, 0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
+            for _, channel in ipairs(channelControls) do
+                local channelValue = channel.Index == 1 and r or (channel.Index == 2 and g or b)
+                channel.Value = channelValue
+                channel.ValueLabel.Text = tostring(channelValue)
+                playTween(channel.Fill, 0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
                     Size = UDim2.new(channelValue / 255, 0, 1, 0),
                 })
             end
             syncColor(not silent)
         end,
     }
+    self.Window:RegisterControl(config.Name or "Color", "ColorPicker", control)
+    return control
+end
+
+function WindowMethods:RefreshKeybindLists()
+    for _, render in ipairs(self._keybindLists or {}) do
+        pcall(render)
+    end
+end
+
+function WindowMethods:GetConfig()
+    local result = {
+        Theme = self.Theme,
+        AccentColor = self.AccentColor,
+        ReducedMotion = self.ReducedMotion,
+        WindowTransparency = self._windowTransparency,
+        CornerRadius = self._cornerRadius,
+        AnimationScale = self._animationScale,
+        Colors = self._customColors or {},
+        Controls = {},
+    }
+    for name, entry in pairs(self._controls or {}) do
+        local ok, value = pcall(function() return entry.Control:Get() end)
+        if ok then result.Controls[name] = value end
+    end
+    return result
+end
+
+function WindowMethods:ApplyConfig(config)
+    if self._destroyed or type(config) ~= "table" then return end
+    self:SetThemeConfig(config)
+    if config.ReducedMotion ~= nil then self:SetReducedMotion(config.ReducedMotion == true) end
+    for name, value in pairs(config.Controls or {}) do
+        local entry = self._controls and self._controls[name]
+        if entry then
+            local fireCallbacks = config.FireCallbacks == true
+            pcall(function()
+                if entry.Type == "TextBox" then
+                    entry.Control:Set(value, fireCallbacks)
+                else
+                    entry.Control:Set(value, not fireCallbacks)
+                end
+            end)
+        end
+    end
+end
+
+function WindowMethods:RegisterCommand(name, callback, keywords)
+    if type(callback) ~= "function" then return end
+    self._commands = self._commands or {}
+    table.insert(self._commands, {
+        Name = tostring(name or "Command"),
+        Callback = callback,
+        Keywords = type(keywords) == "table" and table.concat(keywords, " ") or tostring(keywords or ""),
+    })
+end
+
+function WindowMethods:CloseCommandPalette()
+    if self._commandPalette and self._commandPalette.Frame then
+        self._commandPalette.Frame.Visible = false
+    end
+end
+
+function WindowMethods:OpenCommandPalette()
+    if self._destroyed then return end
+    local palette = self._commandPalette
+    if not palette then
+        local backdrop = create("TextButton", {
+            Name = "CommandPaletteBackdrop", Size = UDim2.fromScale(1, 1),
+            BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 0.58,
+            BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 150,
+        }, self._screenGui)
+        local panel = create("Frame", {
+            Name = "CommandPalette", AnchorPoint = Vector2.new(0.5, 0),
+            Position = UDim2.new(0.5, 0, 0, 12),
+            Size = UDim2.new(0.92, 0, 0, math.max(180, math.min(335, currentViewportSize().Y - 24))),
+            BackgroundColor3 = self.Colors.Card, BackgroundTransparency = 0.04,
+            BorderSizePixel = 0, ZIndex = 151, ClipsDescendants = true,
+        }, backdrop)
+        addCorner(panel, 14)
+        addStroke(panel, self.AccentColor, 0.35, 1.2)
+        createText(panel, "COMMAND PALETTE", 10, self.Colors.Accent, {
+            Position = UDim2.new(0, 14, 0, 8), Size = UDim2.new(1, -28, 0, 18),
+            ZIndex = 153, Font = Enum.Font.GothamBold,
+        })
+        local search = create("TextBox", {
+            Name = "CommandSearch", Position = UDim2.new(0, 12, 0, 32),
+            Size = UDim2.new(1, -24, 0, 38), BackgroundColor3 = self.Colors.BackgroundLight,
+            BackgroundTransparency = 0.06, BorderSizePixel = 0, Text = "",
+            PlaceholderText = "Search commands or tabs...", PlaceholderColor3 = self.Colors.Muted,
+            TextColor3 = self.Colors.Text, TextSize = 13, Font = Enum.Font.Gotham,
+            ClearTextOnFocus = false, ZIndex = 153,
+        }, panel)
+        addCorner(search, 9)
+        local results = create("ScrollingFrame", {
+            Name = "CommandResults", Position = UDim2.new(0, 12, 0, 79),
+            Size = UDim2.new(1, -24, 1, -91), BackgroundTransparency = 1,
+            BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = self.AccentColor,
+            AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(0, 0, 0, 0),
+            ScrollingDirection = Enum.ScrollingDirection.Y, ZIndex = 152,
+        }, panel)
+        create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, results)
+        palette = { Frame = backdrop, Panel = panel, Search = search, Results = results, RunFirst = nil }
+        self._commandPalette = palette
+
+        local function render(query)
+            for _, child in ipairs(results:GetChildren()) do
+                if child:IsA("TextButton") or child.Name == "CommandEmpty" then child:Destroy() end
+            end
+            query = string.lower(tostring(query or ""))
+            local matches = {}
+            for _, command in ipairs(self._commands or {}) do
+                local haystack = string.lower(command.Name .. " " .. command.Keywords)
+                if query == "" or string.find(haystack, query, 1, true) then
+                    table.insert(matches, { Name = command.Name, Callback = command.Callback })
+                end
+            end
+            for _, tab in ipairs(self._tabs or {}) do
+                local tabName = "Open tab: " .. tab.Name
+                if query == "" or string.find(string.lower(tabName), query, 1, true) then
+                    table.insert(matches, {
+                        Name = tabName,
+                        Callback = function()
+                            self:SelectTab(tab)
+                            self:SetVisible(true)
+                            self:CloseCommandPalette()
+                        end,
+                    })
+                end
+            end
+            palette.RunFirst = matches[1] and matches[1].Callback or nil
+            if #matches == 0 then
+                createText(results, "No matching commands", 12, self.Colors.Muted, {
+                    Name = "CommandEmpty", Size = UDim2.new(1, -8, 0, 34), ZIndex = 154,
+                })
+                return
+            end
+            for index, item in ipairs(matches) do
+                local button = create("TextButton", {
+                    Name = "CommandResult_" .. index, Size = UDim2.new(1, -5, 0, 34),
+                    BackgroundColor3 = self.Colors.CardHover, BackgroundTransparency = 0.3,
+                    BorderSizePixel = 0, Text = item.Name, TextColor3 = self.Colors.Text,
+                    TextSize = 12, Font = Enum.Font.GothamMedium, TextXAlignment = Enum.TextXAlignment.Left,
+                    AutoButtonColor = false, LayoutOrder = index, ZIndex = 154,
+                }, results)
+                addCorner(button, 8)
+                create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 8) }, button)
+                addInteractive(button, self, nil)
+                addConnection(self, button.Activated, function()
+                    self:CloseCommandPalette()
+                    safeCallback(item.Callback)
+                end)
+            end
+        end
+        palette.Render = render
+        addConnection(self, search:GetPropertyChangedSignal("Text"), function() render(search.Text) end)
+        addConnection(self, search.FocusLost, function(enterPressed)
+            if enterPressed and palette.RunFirst then
+                local callback = palette.RunFirst
+                self:CloseCommandPalette()
+                safeCallback(callback)
+            end
+        end)
+        addConnection(self, backdrop.Activated, function() self:CloseCommandPalette() end)
+        addConnection(self, UserInputService.InputBegan, function(input, processed)
+            if not processed and input.KeyCode == Enum.KeyCode.Escape and palette.Frame.Visible then
+                self:CloseCommandPalette()
+            end
+        end)
+    end
+    palette.Frame.Visible = true
+    palette.Search.Text = ""
+    palette.Render("")
+    palette.Search:CaptureFocus()
+end
+
+function WindowMethods:OpenThemeEditor()
+    if self._destroyed then return end
+    local editor = self._themeEditor
+    if editor and editor.Frame and editor.Frame.Parent then
+        editor.Frame.Visible = not editor.Frame.Visible
+        return
+    end
+    local viewport = currentViewportSize()
+    local panelWidth = math.max(180, math.min(310, viewport.X - 20))
+    local frame = create("Frame", {
+        Name = "NovaThemeEditor", AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, -12, 0, 76), Size = UDim2.fromOffset(panelWidth, 330),
+        BackgroundColor3 = self.Colors.Card, BackgroundTransparency = 0.04,
+        BorderSizePixel = 0, ZIndex = 170, ClipsDescendants = true,
+    }, self._screenGui)
+    addCorner(frame, 15)
+    addStroke(frame, self.AccentColor, 0.32, 1.2)
+    createText(frame, "LIVE THEME EDITOR", 12, self.Colors.Text, {
+        Position = UDim2.new(0, 14, 0, 10), Size = UDim2.new(1, -52, 0, 24),
+        Font = Enum.Font.GothamBold, ZIndex = 171,
+    })
+    local close = create("TextButton", {
+        Name = "ThemeEditorClose", AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, -9, 0, 8), Size = UDim2.fromOffset(26, 26),
+        BackgroundColor3 = self.Colors.CardHover, BackgroundTransparency = 0.1,
+        BorderSizePixel = 0, Text = "×", TextColor3 = self.Colors.Text, TextSize = 18,
+        Font = Enum.Font.GothamBold, ZIndex = 172,
+    }, frame)
+    addCorner(close, 8)
+    addConnection(self, close.Activated, function() frame.Visible = false end)
+    createText(frame, "Theme preset", 11, self.Colors.Muted, {
+        Position = UDim2.new(0, 14, 0, 43), Size = UDim2.new(1, -28, 0, 18), ZIndex = 171,
+    })
+    local themeNames = { "Dark", "Midnight", "Ocean", "Light" }
+    for index, name in ipairs(themeNames) do
+        local themeName = name
+        local button = create("TextButton", {
+            Name = "Theme_" .. name,
+            Position = UDim2.new(0, 12 + ((index - 1) % 2) * ((panelWidth - 30) / 2 + 6), 0, 64 + math.floor((index - 1) / 2) * 34),
+            Size = UDim2.fromOffset((panelWidth - 30) / 2, 28),
+            BackgroundColor3 = self.Colors.CardHover, BackgroundTransparency = 0.12,
+            BorderSizePixel = 0, Text = name, TextColor3 = self.Colors.Text,
+            TextSize = 11, Font = Enum.Font.GothamMedium, ZIndex = 171,
+        }, frame)
+        addCorner(button, 8)
+        addConnection(self, button.Activated, function() self:SetTheme(themeName) end)
+    end
+    createText(frame, "Accent colors", 11, self.Colors.Muted, {
+        Position = UDim2.new(0, 14, 0, 142), Size = UDim2.new(1, -28, 0, 18), ZIndex = 171,
+    })
+    local accents = {
+        { "Blue", Color3.fromRGB(104, 190, 255) }, { "Purple", Color3.fromRGB(174, 140, 255) },
+        { "Mint", Color3.fromRGB(94, 230, 190) }, { "Pink", Color3.fromRGB(255, 125, 190) },
+        { "Orange", Color3.fromRGB(255, 174, 96) },
+    }
+    for index, item in ipairs(accents) do
+        local slot = index
+        local button = create("TextButton", {
+            Name = "Accent_" .. item[1],
+            Position = UDim2.new(0, 14 + (index - 1) * ((panelWidth - 28) / #accents), 0, 164),
+            Size = UDim2.fromOffset(math.max(20, (panelWidth - 28) / #accents - 5), 26),
+            BackgroundColor3 = item[2], BorderSizePixel = 0, Text = "", ZIndex = 171,
+        }, frame)
+        addCorner(button, 8)
+        addStroke(button, self.Colors.White, 0.52, 1)
+        addConnection(self, button.Activated, function()
+            self:SetThemeConfig({ AccentColor = accents[slot][2] })
+        end)
+    end
+    local glass = create("TextButton", {
+        Name = "CycleTransparency", Position = UDim2.new(0, 12, 0, 206),
+        Size = UDim2.new(0.5, -18, 0, 30), BackgroundColor3 = self.Colors.CardHover,
+        BackgroundTransparency = 0.1, BorderSizePixel = 0,
+        Text = "Glass", TextColor3 = self.Colors.Text, TextSize = 11, ZIndex = 171,
+    }, frame)
+    addCorner(glass, 8)
+    local transparencyValues = { 0.08, 0.14, 0.24 }
+    local function updateGlassLabel()
+        glass.Text = "Glass: " .. string.format("%d%%", math.floor((1 - (self._windowTransparency or 0.14)) * 100))
+    end
+    updateGlassLabel()
+    addConnection(self, glass.Activated, function()
+        local current = self._windowTransparency or 0.14
+        local nextValue = transparencyValues[1]
+        for index, value in ipairs(transparencyValues) do
+            if math.abs(current - value) < 0.015 then
+                nextValue = transparencyValues[index % #transparencyValues + 1]
+                break
+            end
+        end
+        self:SetThemeConfig({ WindowTransparency = nextValue })
+        updateGlassLabel()
+    end)
+    local radius = create("TextButton", {
+        Name = "CycleCornerRadius", Position = UDim2.new(0.5, 6, 0, 206),
+        Size = UDim2.new(0.5, -18, 0, 30), BackgroundColor3 = self.Colors.CardHover,
+        BackgroundTransparency = 0.1, BorderSizePixel = 0,
+        Text = "Roundness", TextColor3 = self.Colors.Text, TextSize = 11, ZIndex = 171,
+    }, frame)
+    addCorner(radius, 8)
+    local radii = { 10, 16, 22 }
+    local function updateRadiusLabel() radius.Text = "Roundness: " .. tostring(self._cornerRadius or 16) end
+    updateRadiusLabel()
+    addConnection(self, radius.Activated, function()
+        local current = self._cornerRadius or 16
+        local nextValue = radii[1]
+        for index, value in ipairs(radii) do
+            if current == value then nextValue = radii[index % #radii + 1]; break end
+        end
+        self:SetThemeConfig({ CornerRadius = nextValue })
+        updateRadiusLabel()
+    end)
+    local motion = create("TextButton", {
+        Name = "ToggleReducedMotion", Position = UDim2.new(0, 12, 0, 246),
+        Size = UDim2.new(1, -24, 0, 30), BackgroundColor3 = self.Colors.CardHover,
+        BackgroundTransparency = 0.1, BorderSizePixel = 0,
+        Text = self.ReducedMotion and "Animations: Reduced" or "Animations: Full",
+        TextColor3 = self.Colors.Text, TextSize = 11, ZIndex = 171,
+    }, frame)
+    addCorner(motion, 8)
+    addConnection(self, motion.Activated, function()
+        self:SetReducedMotion(not self.ReducedMotion)
+        motion.Text = self.ReducedMotion and "Animations: Reduced" or "Animations: Full"
+    end)
+    createText(frame, "Changes apply immediately.", 10, self.Colors.Muted, {
+        Position = UDim2.new(0, 14, 0, 286), Size = UDim2.new(1, -28, 0, 24), ZIndex = 171,
+    })
+    self._themeEditor = { Frame = frame }
 end
 
 
@@ -2162,6 +2908,16 @@ function NovaUI:CreateWindow(config)
         _tabs = {},
         _connections = {},
         _notifications = {},
+        _controls = {},
+        _keybindRegistry = {},
+        _keybindLists = {},
+        _commands = {},
+        _snapToEdges = config.SnapToEdges ~= false,
+        _snapDistance = math.clamp(tonumber(config.SnapDistance) or 18, 4, 48),
+        _resizable = config.Resizable ~= false,
+        _windowTransparency = math.clamp(tonumber(config.WindowTransparency) or 0.14, 0, 0.65),
+        _cornerRadius = math.clamp(tonumber(config.CornerRadius) or 16, 6, 24),
+        _animationScale = math.clamp(tonumber(config.AnimationScale) or 1, 0.45, 1.8),
         _destroyed = false,
         _closing = false,
         _hidden = false,
@@ -2178,6 +2934,13 @@ function NovaUI:CreateWindow(config)
     if type(window.ToggleKey) == "string" then
         window.ToggleKey = Enum.KeyCode[window.ToggleKey]
     end
+    screenGui:SetAttribute("NovaAnimationScale", window._animationScale)
+    root.BackgroundTransparency = window._windowTransparency
+    window:RegisterCommand("Open theme editor", function() window:OpenThemeEditor() end, "theme appearance colors")
+    window:RegisterCommand("Collapse to top bar", function() window:CollapseBar() end, "minimize collapse")
+    window:RegisterCommand("Collapse to icon", function() window:CollapseToSquare() end, "minimize square")
+    window:RegisterCommand("Restore window", function() window:Expand() end, "expand restore")
+    window:RegisterCommand("Toggle window visibility", function() window:SetVisible(window._hidden == true) end, "show hide visibility")
 
     -- Register window actions after the window instance exists so every connection is cleaned up.
     local function registerInteractive(button, stroke)
@@ -2283,6 +3046,19 @@ function NovaUI:CreateWindow(config)
         -- correction is needed after dragging either the full window or its icon.
         if wasMoved then
             window._expandedPosition = root.Position
+            if finishedMode == "window" and window._collapseMode == nil and window._snapToEdges then
+                local viewportNow = currentViewportSize()
+                local pos = root.Position
+                local x = pos.X.Offset
+                local y = pos.Y.Offset
+                local w = window._expandedSize.X.Offset
+                local h = window._expandedSize.Y.Offset
+                local snap = window._snapDistance
+                if x <= snap then x = 0 elseif viewportNow.X - (x + w) <= snap then x = math.max(0, viewportNow.X - w) end
+                if y <= snap then y = 0 elseif viewportNow.Y - (y + h) <= snap then y = math.max(0, viewportNow.Y - h) end
+                root.Position = UDim2.fromOffset(x, y)
+                window._expandedPosition = root.Position
+            end
         end
         if wasMoved and finishedMode == "square" then
             -- Some Roblox clients do not fire Activated after a drag; clear this guard
@@ -2296,6 +3072,17 @@ function NovaUI:CreateWindow(config)
     end)
 
     addConnection(window, UserInputService.InputBegan, function(input, gameProcessed)
+        if input.UserInputType == Enum.UserInputType.Keyboard
+            and input.KeyCode == Enum.KeyCode.K
+            and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl))
+            and not UserInputService:GetFocusedTextBox() then
+            if window._commandPalette and window._commandPalette.Frame.Visible then
+                window:CloseCommandPalette()
+            else
+                window:OpenCommandPalette()
+            end
+            return
+        end
         if gameProcessed or UserInputService:GetFocusedTextBox() or window._listeningKeybind then return end
         if window.ToggleKey and typeof(window.ToggleKey) == "EnumItem"
             and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == window.ToggleKey then
@@ -2364,6 +3151,65 @@ function NovaUI:CreateWindow(config)
         end)
         updateResponsiveLayout(newCamera.ViewportSize)
     end)
+
+    if window._resizable then
+        local resizeGrip = create("TextButton", {
+            Name = "ResizeGrip",
+            AnchorPoint = Vector2.new(1, 1),
+            Position = UDim2.new(1, -4, 1, -4),
+            Size = UDim2.fromOffset(18, 18),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Text = "",
+            AutoButtonColor = false,
+            ZIndex = 40,
+        }, root)
+        for index = 1, 3 do
+            local line = create("Frame", {
+                Name = "ResizeLine_" .. index,
+                AnchorPoint = Vector2.new(1, 1),
+                Position = UDim2.new(1, -2, 1, -2 - (index - 1) * 4),
+                Size = UDim2.fromOffset(4 + index * 2, 2),
+                BackgroundColor3 = palette.Text,
+                BackgroundTransparency = 0.12,
+                BorderSizePixel = 0,
+                ZIndex = 41,
+            }, resizeGrip)
+            addCorner(line, 2)
+        end
+        window._resizeGrip = resizeGrip
+        local resizing = false
+        local resizeStart = nil
+        local sizeStart = nil
+        addConnection(window, resizeGrip.InputBegan, function(input)
+            if window._collapseMode ~= nil then return end
+            if input.UserInputType ~= Enum.UserInputType.MouseButton1
+                and input.UserInputType ~= Enum.UserInputType.Touch then return end
+            resizing = true
+            resizeStart = input.Position
+            sizeStart = window._expandedSize
+        end)
+        addConnection(window, UserInputService.InputChanged, function(input)
+            if not resizing or window._destroyed then return end
+            if input.UserInputType ~= Enum.UserInputType.MouseMovement
+                and input.UserInputType ~= Enum.UserInputType.Touch then return end
+            local delta = input.Position - resizeStart
+            local viewportNow = currentViewportSize()
+            local position = window._expandedPosition or root.Position
+            local maxWidth = math.max(180, viewportNow.X - position.X.Offset - 8)
+            local maxHeight = math.max(160, viewportNow.Y - position.Y.Offset - 8)
+            desiredWidth = math.clamp(sizeStart.X.Offset + delta.X, 180, math.min(1400, maxWidth))
+            desiredHeight = math.clamp(sizeStart.Y.Offset + delta.Y, 160, math.min(1100, maxHeight))
+            updateResponsiveLayout(viewportNow)
+        end)
+        addConnection(window, UserInputService.InputEnded, function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                resizing = false
+                resizeStart = nil
+                sizeStart = nil
+            end
+        end)
+    end
 
     -- Useful runtime theme and accent methods start from the selected palette.
     if normalizeThemeName(config.Theme or "Dark") ~= "Dark" then
