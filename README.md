@@ -55,3 +55,11 @@ Example usage:
 The glass appearance is simulated with Roblox GUI transparency and styling. Standard ScreenGui elements do not provide a true per-panel blur of the 3D scene behind them.
 
 NovaUI is intended for Roblox Studio experiences you own or are authorized to edit. A Pastebin URL is not a valid direct input to ordinary Roblox require().
+
+## Version 1.1.3
+
+- The compact icon now uses the window's top-left as its anchor point. Collapsing or restoring no longer pulls the window toward its center.
+- Window dragging is clamped to the active viewport, including while in bar or square mode. Dragging the icon moves the future expanded window's origin.
+- Width and height are recalculated when the viewport changes, and the current camera is rebound if Roblox replaces it.
+- Collapse/restore resizing uses non-overshooting easing to avoid briefly crossing screen edges.
+- Sidebar/content spacing adapts more aggressively to narrow screens.
