@@ -528,7 +528,13 @@ function WindowMethods:SetThemeConfig(config)
             self._cornerRadius = math.clamp(radius, 6, 24)
             for _, descendant in ipairs(self._screenGui:GetDescendants()) do
                 if descendant:IsA("UICorner") then
-                    descendant.CornerRadius = UDim.new(0, self._cornerRadius)
+                    local baseRadius = descendant:GetAttribute("NovaBaseCornerRadius")
+                    if type(baseRadius) ~= "number" then
+                        baseRadius = descendant.CornerRadius.Offset
+                        descendant:SetAttribute("NovaBaseCornerRadius", baseRadius)
+                    end
+                    local scaledRadius = math.clamp(math.floor(baseRadius * (self._cornerRadius / 16) + 0.5), 2, 24)
+                    descendant.CornerRadius = UDim.new(descendant.CornerRadius.Scale, scaledRadius)
                 end
             end
         end
@@ -1066,6 +1072,12 @@ function WindowMethods:Destroy()
         end)
     end
     table.clear(self._connections)
+    if self._commandPalette then
+        for _, connection in ipairs(self._commandPalette.ResultConnections or {}) do
+            pcall(function() connection:Disconnect() end)
+        end
+        self._commandPalette.ResultConnections = {}
+    end
     if self._screenGui then
         self._screenGui:Destroy()
     end
@@ -2422,6 +2434,10 @@ function WindowMethods:OpenCommandPalette()
         self._commandPalette = palette
 
         local function render(query)
+            for _, connection in ipairs(palette.ResultConnections or {}) do
+                pcall(function() connection:Disconnect() end)
+            end
+            palette.ResultConnections = {}
             for _, child in ipairs(results:GetChildren()) do
                 if child:IsA("TextButton") or child.Name == "CommandEmpty" then child:Destroy() end
             end
@@ -2434,12 +2450,13 @@ function WindowMethods:OpenCommandPalette()
                 end
             end
             for _, tab in ipairs(self._tabs or {}) do
-                local tabName = "Open tab: " .. tab.Name
+                local selectedTab = tab
+                local tabName = "Open tab: " .. selectedTab.Name
                 if query == "" or string.find(string.lower(tabName), query, 1, true) then
                     table.insert(matches, {
                         Name = tabName,
                         Callback = function()
-                            self:SelectTab(tab)
+                            self:SelectTab(selectedTab)
                             self:SetVisible(true)
                             self:CloseCommandPalette()
                         end,
@@ -2463,11 +2480,11 @@ function WindowMethods:OpenCommandPalette()
                 }, results)
                 addCorner(button, 8)
                 create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 8) }, button)
-                addInteractive(button, self, nil)
-                addConnection(self, button.Activated, function()
+                local commandItem = item
+                table.insert(palette.ResultConnections, button.Activated:Connect(function()
                     self:CloseCommandPalette()
-                    safeCallback(item.Callback)
-                end)
+                    safeCallback(commandItem.Callback)
+                end))
             end
         end
         palette.Render = render
