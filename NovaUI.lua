@@ -1,5 +1,5 @@
 --[[
-    NovaUI 1.2.0 - Liquid Glass GUI Library for Roblox
+    NovaUI 1.2.1 - Liquid Glass GUI Library for Roblox
     Intended for a LocalScript + ModuleScript in an experience you own or are authorized to edit.
 
     Quick start:
@@ -1937,7 +1937,7 @@ function TabMethods:AddMultiDropdown(config)
     local function updateOptionsCanvas()
         optionsScroll.CanvasSize = UDim2.new(0, 0, 0, optionsLayout.AbsoluteContentSize.Y + 4)
     end
-    optionsLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateOptionsCanvas)
+    addConnection(self.Window, optionsLayout:GetPropertyChangedSignal("AbsoluteContentSize"), updateOptionsCanvas)
     local buttons = {}
     local expanded = false
 
