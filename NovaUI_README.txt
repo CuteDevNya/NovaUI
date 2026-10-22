@@ -1,4 +1,4 @@
-NovaUI 1.1.2 - Liquid Glass GUI Library
+NovaUI 1.1.3 - Liquid Glass GUI Library
 =================================
 
 
@@ -18,6 +18,15 @@ BUGFIXES IN 1.1.1
 - Expansion restores the saved position without drift caused by ordinary button clicks.
 - The compact square can be dragged; the expanded window follows its new location.
 - Dropdown chevron arms overlap cleanly and have rounded ends.
+
+CHANGES IN 1.1.3
+----------------
+- The window now uses a fixed top-left anchor, so collapsing into the icon does not pull it toward the center.
+- The compact icon and expanded window share the same origin. Restoring grows toward the right and bottom.
+- Dragging the window or icon is clamped so the expanded window stays inside the current viewport.
+- Window width and height adapt to viewport changes, including orientation changes.
+- Sidebar spacing and title/subtitle widths adapt to narrower screens.
+- Window collapse/restore uses non-overshooting easing to avoid crossing screen edges.
 
 INSTALLATION (Roblox Studio)
 1. Create a ModuleScript named NovaUI inside ReplicatedStorage.
