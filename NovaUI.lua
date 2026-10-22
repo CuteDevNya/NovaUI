@@ -1356,6 +1356,70 @@ function TabMethods:AddDivider()
     return divider
 end
 
+function TabMethods:AddGroup(config)
+    config = config or {}
+    local groupName = tostring(config.Name or "")
+    local headerHeight = groupName ~= "" and 30 or 0
+    local root = create("Frame", {
+        Name = "ControlGroup",
+        Size = UDim2.new(1, -2, 0, headerHeight + 18),
+        BackgroundColor3 = self.Window.Colors.Card,
+        BackgroundTransparency = tonumber(config.BackgroundTransparency) or 0.22,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        LayoutOrder = 0,
+    }, self.Page)
+    root:SetAttribute("NovaGroupRoot", true)
+    addCorner(root, tonumber(config.CornerRadius) or 12)
+    local stroke = addStroke(root, self.Window.Colors.Outline, 0.8, 1)
+
+    if groupName ~= "" then
+        local iconOffset = addLeadingIcon(root, config.Icon, self.Window, 18, 20)
+        createText(root, groupName, 11, self.Window.AccentColor, {
+            Name = "GroupTitle",
+            Position = UDim2.new(0, 12 + iconOffset, 0, 4),
+            Size = UDim2.new(1, -24 - iconOffset, 0, 22),
+            Font = Enum.Font.GothamBold,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+        })
+    end
+
+    local contentTop = headerHeight + 5
+    local content = create("Frame", {
+        Name = "GroupContent",
+        Position = UDim2.new(0, 8, 0, contentTop),
+        Size = UDim2.new(1, -16, 0, 0),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+    }, root)
+    content:SetAttribute("NovaGroupContainer", true)
+    local layout = create("UIListLayout", {
+        Padding = UDim.new(0, 2),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, content)
+
+    local group = setmetatable({
+        Window = self.Window,
+        Name = groupName,
+        Page = content,
+        Layout = layout,
+        Instance = root,
+        Stroke = stroke,
+        _ownerTab = self,
+        _isGroup = true,
+    }, TabMethods)
+
+    local function fitGroup()
+        if not root.Parent then return end
+        local bodyHeight = layout.AbsoluteContentSize.Y
+        content.Size = UDim2.new(1, -16, 0, bodyHeight)
+        root.Size = UDim2.new(1, -2, 0, contentTop + bodyHeight + 8)
+    end
+    addConnection(self.Window, layout:GetPropertyChangedSignal("AbsoluteContentSize"), fitGroup)
+    fitGroup()
+    return group
+end
+
 function TabMethods:AddButton(config)
     if type(config) == "string" then
         config = { Name = config }
@@ -1364,6 +1428,7 @@ function TabMethods:AddButton(config)
 
     local height = config.Description and 66 or 52
     local card, stroke = makeCard(self.Page, height, self.Window)
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, height / 2, 22)
     local button = create("TextButton", {
         Name = "ButtonHitbox",
         Size = UDim2.fromScale(1, 1),
@@ -1374,15 +1439,15 @@ function TabMethods:AddButton(config)
     }, card)
 
     createText(card, config.Name or "Button", 14, self.Window.Colors.Text, {
-        Position = UDim2.new(0, 14, 0, config.Description and 7 or 0),
-        Size = UDim2.new(1, -28, 0, config.Description and 25 or height),
+        Position = UDim2.new(0, 14 + iconOffset, 0, config.Description and 7 or 0),
+        Size = UDim2.new(1, -28 - iconOffset, 0, config.Description and 25 or height),
         Font = Enum.Font.GothamMedium,
     })
 
     if config.Description then
         createText(card, config.Description, 11, self.Window.Colors.Muted, {
-            Position = UDim2.new(0, 14, 0, 32),
-            Size = UDim2.new(1, -28, 0, 23),
+            Position = UDim2.new(0, 14 + iconOffset, 0, 32),
+            Size = UDim2.new(1, -28 - iconOffset, 0, 23),
             Font = Enum.Font.Gotham,
             TextTruncate = Enum.TextTruncate.AtEnd,
         })
@@ -1393,6 +1458,9 @@ function TabMethods:AddButton(config)
         safeCallback(config.Callback)
     end)
     attachTooltip(button, self.Window, config.Tooltip)
+    self.Window:RegisterCommand("Button: " .. tostring(config.Name or "Button"), function()
+        safeCallback(config.Callback)
+    end, { "button", config.Name or "Button", config.Description or "" })
 
     return {
         Instance = card,
@@ -1403,6 +1471,7 @@ end
 function TabMethods:AddToggle(config)
     config = config or {}
     local card, stroke = makeCard(self.Page, 54, self.Window)
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, 27, 22)
     local state = config.Default == true
 
     local hitbox = create("TextButton", {
@@ -1415,8 +1484,8 @@ function TabMethods:AddToggle(config)
     }, card)
 
     createText(card, config.Name or "Toggle", 13, self.Window.Colors.Text, {
-        Position = UDim2.new(0, 14, 0, 0),
-        Size = UDim2.new(1, -78, 1, 0),
+        Position = UDim2.new(0, 14 + iconOffset, 0, 0),
+        Size = UDim2.new(1, -78 - iconOffset, 1, 0),
         Font = Enum.Font.GothamMedium,
         TextTruncate = Enum.TextTruncate.AtEnd,
     })
@@ -1491,10 +1560,11 @@ function TabMethods:AddSlider(config)
     end
 
     local card, stroke = makeCard(self.Page, 76, self.Window)
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, 17, 22)
     local value = math.clamp(tonumber(config.Default) or minimum, minimum, maximum)
     local title = createText(card, config.Name or "Slider", 13, self.Window.Colors.Text, {
-        Position = UDim2.new(0, 14, 0, 5),
-        Size = UDim2.new(1, -100, 0, 24),
+        Position = UDim2.new(0, 14 + iconOffset, 0, 5),
+        Size = UDim2.new(1, -100 - iconOffset, 0, 24),
         Font = Enum.Font.GothamMedium,
         TextTruncate = Enum.TextTruncate.AtEnd,
     })
@@ -1632,6 +1702,7 @@ function TabMethods:AddDropdown(config)
 
     local card, stroke = makeCard(self.Page, 50, self.Window)
     card.Name = "DropdownCard"
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, 25, 22)
     local header = create("TextButton", {
         Name = "DropdownHeader",
         Size = UDim2.new(1, 0, 0, 50),
@@ -1642,8 +1713,8 @@ function TabMethods:AddDropdown(config)
     }, card)
 
     createText(card, config.Name or "Dropdown", 13, self.Window.Colors.Text, {
-        Position = UDim2.new(0, 14, 0, 0),
-        Size = UDim2.new(0.48, -10, 0, 50),
+        Position = UDim2.new(0, 14 + iconOffset, 0, 0),
+        Size = UDim2.new(0.48, -10 - iconOffset, 0, 50),
         Font = Enum.Font.GothamMedium,
         TextTruncate = Enum.TextTruncate.AtEnd,
     })
@@ -1800,12 +1871,13 @@ function TabMethods:AddMultiDropdown(config)
     local card, stroke = makeCard(self.Page, 50, self.Window)
     card.Name = "MultiDropdownCard"
     card.ClipsDescendants = true
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, 25, 22)
     local header = create("TextButton", {
         Name = "MultiDropdownHeader", Size = UDim2.new(1, 0, 0, 50),
         BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false,
     }, card)
     createText(card, config.Name or "Multi-select", 13, self.Window.Colors.Text, {
-        Position = UDim2.new(0, 14, 0, 0), Size = UDim2.new(0.48, -10, 0, 50),
+        Position = UDim2.new(0, 14 + iconOffset, 0, 0), Size = UDim2.new(0.48, -10 - iconOffset, 0, 50),
         Font = Enum.Font.GothamMedium, TextTruncate = Enum.TextTruncate.AtEnd,
     })
     local selectedLabel = createText(card, "None selected", 11, self.Window.AccentColor, {
@@ -1837,11 +1909,16 @@ function TabMethods:AddMultiDropdown(config)
         Name = "MultiOptions", Position = UDim2.new(0, 10, 0, 52),
         Size = UDim2.new(1, -20, 0, visibleOptions * optionHeight),
         BackgroundTransparency = 1, BorderSizePixel = 0,
-        ScrollBarThickness = 3, ScrollBarImageColor3 = self.Window.AccentColor,
-        CanvasSize = UDim2.new(0, 0, 0, #optionStrings * optionHeight),
+        Active = true, ScrollingEnabled = true,
+        ScrollBarThickness = 4, ScrollBarImageColor3 = self.Window.AccentColor,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
         Visible = false, ZIndex = 5,
     }, card)
-    create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, optionsScroll)
+    local optionsLayout = create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, optionsScroll)
+    local function updateOptionsCanvas()
+        optionsScroll.CanvasSize = UDim2.new(0, 0, 0, optionsLayout.AbsoluteContentSize.Y + 4)
+    end
+    optionsLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateOptionsCanvas)
     local buttons = {}
     local expanded = false
 
@@ -1923,8 +2000,9 @@ function TabMethods:AddProgressBar(config)
     local value = math.clamp(tonumber(config.Default) or minimum, minimum, maximum)
     local card = makeCard(self.Page, 64, self.Window)
     card.Name = "ProgressBarCard"
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, 15, 20)
     local title = createText(card, config.Name or "Progress", 12, self.Window.Colors.Text, {
-        Position = UDim2.new(0, 13, 0, 4), Size = UDim2.new(1, -80, 0, 22),
+        Position = UDim2.new(0, 13 + iconOffset, 0, 4), Size = UDim2.new(1, -80 - iconOffset, 0, 22),
         Font = Enum.Font.GothamMedium, TextTruncate = Enum.TextTruncate.AtEnd,
     })
     local valueLabel = createText(card, "0%", 11, self.Window.AccentColor, {
@@ -1968,8 +2046,9 @@ function TabMethods:AddRadioGroup(config)
     local selected = tostring(config.Default or options[1] or "")
     local card = makeCard(self.Page, 40 + #options * 31, self.Window)
     card.Name = "RadioGroupCard"
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, 14, 20)
     createText(card, config.Name or "Choose one", 12, self.Window.Colors.Text, {
-        Position = UDim2.new(0, 13, 0, 2), Size = UDim2.new(1, -26, 0, 25),
+        Position = UDim2.new(0, 13 + iconOffset, 0, 2), Size = UDim2.new(1, -26 - iconOffset, 0, 25),
         Font = Enum.Font.GothamMedium,
     })
     local list = create("Frame", {
@@ -2023,8 +2102,9 @@ function TabMethods:AddKeybindList(config)
     local height = tonumber(config.Height) or 154
     local card = makeCard(self.Page, height, self.Window)
     card.Name = "KeybindListCard"
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, 14, 20)
     createText(card, config.Name or "Keybinds", 12, self.Window.Colors.Text, {
-        Position = UDim2.new(0, 13, 0, 3), Size = UDim2.new(1, -26, 0, 22),
+        Position = UDim2.new(0, 13 + iconOffset, 0, 3), Size = UDim2.new(1, -26 - iconOffset, 0, 22),
         Font = Enum.Font.GothamBold,
     })
     local list = create("ScrollingFrame", {
@@ -2148,11 +2228,12 @@ function TabMethods:AddTextBox(config)
     local multiline = config.Multiline == true or config.MultiLine == true
     local height = multiline and (tonumber(config.Height) or 104) or 58
     local card, stroke = makeCard(self.Page, height, self.Window)
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, multiline and 16 or height / 2, 22)
     local titleHeight = multiline and 25 or height
     createText(card, config.Name or "Text input", 13, self.Window.Colors.Text, {
         Name = "TextBoxTitle",
-        Position = UDim2.new(0, 13, 0, multiline and 5 or 0),
-        Size = UDim2.new(1, -26, 0, titleHeight),
+        Position = UDim2.new(0, 13 + iconOffset, 0, multiline and 5 or 0),
+        Size = UDim2.new(1, -26 - iconOffset, 0, titleHeight),
         Font = Enum.Font.GothamMedium,
     })
     local textBox = create("TextBox", {
@@ -2180,6 +2261,12 @@ function TabMethods:AddTextBox(config)
         textBox.Size = UDim2.new(0.53, -10, 0, 34)
     end
     addCorner(textBox, 9)
+    create("UIPadding", {
+        PaddingLeft = UDim.new(0, 9),
+        PaddingRight = UDim.new(0, 7),
+        PaddingTop = UDim.new(0, multiline and 6 or 0),
+        PaddingBottom = UDim.new(0, 2),
+    }, textBox)
     addStroke(textBox, self.Window.Colors.Outline, 0.78, 1)
     addConnection(self.Window, textBox.FocusLost, function(enterPressed)
         if config.FireOnFocusLost ~= false then
@@ -2213,11 +2300,12 @@ end
 function TabMethods:AddKeybind(config)
     config = config or {}
     local card, stroke = makeCard(self.Page, 54, self.Window)
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, 27, 22)
     local keyCode = normalizeKeyCode(config.Default) or Enum.KeyCode.Unknown
     local listening = false
     createText(card, config.Name or "Keybind", 13, self.Window.Colors.Text, {
-        Position = UDim2.new(0, 13, 0, 0),
-        Size = UDim2.new(1, -120, 1, 0),
+        Position = UDim2.new(0, 13 + iconOffset, 0, 0),
+        Size = UDim2.new(1, -120 - iconOffset, 1, 0),
         Font = Enum.Font.GothamMedium,
         TextTruncate = Enum.TextTruncate.AtEnd,
     })
@@ -2304,6 +2392,7 @@ function TabMethods:AddColorPicker(config)
     local currentColor = Color3.fromRGB(r, g, b)
     local card, stroke = makeCard(self.Page, 52, self.Window)
     card.Name = "ColorPickerCard"
+    local iconOffset = addLeadingIcon(card, config.Icon, self.Window, 26, 22)
     local header = create("TextButton", {
         Name = "ColorPickerHeader",
         Size = UDim2.new(1, 0, 0, 52),
@@ -2313,8 +2402,8 @@ function TabMethods:AddColorPicker(config)
         AutoButtonColor = false,
     }, card)
     createText(card, config.Name or "Color", 13, self.Window.Colors.Text, {
-        Position = UDim2.new(0, 13, 0, 0),
-        Size = UDim2.new(1, -82, 0, 52),
+        Position = UDim2.new(0, 13 + iconOffset, 0, 0),
+        Size = UDim2.new(1, -82 - iconOffset, 0, 52),
         Font = Enum.Font.GothamMedium,
     })
     local swatch = create("Frame", {
