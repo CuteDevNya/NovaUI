@@ -1,9 +1,23 @@
--- NovaUI Example
--- Put NovaUI.lua in a ModuleScript named "NovaUI" inside ReplicatedStorage.
--- Put this example in a LocalScript inside StarterPlayerScripts.
+-- NovaUI 1.2.0 Example
+-- Loader mode:
+--   true  = fetch from GitHub with loadstring/game:HttpGet (executor-dependent).
+--   false = normal Roblox Studio LocalScript + ModuleScript workflow.
+-- Use the remote loader only when you trust the published source and have permission
+-- to run scripts in the experience. Ordinary Studio LocalScripts do not support game:HttpGet.
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local NovaUI = require(ReplicatedStorage:WaitForChild("NovaUI"))
+local USE_GITHUB_LOADER = true
+local NovaUI
+
+if USE_GITHUB_LOADER then
+    local sourceUrl = "https://raw.githubusercontent.com/CuteDevNya/NovaUI/main/NovaUI.lua"
+    local source = game:HttpGet(sourceUrl)
+    local compile, compileError = loadstring(source)
+    assert(compile, "NovaUI compile failed: " .. tostring(compileError))
+    NovaUI = compile()
+else
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    NovaUI = require(ReplicatedStorage:WaitForChild("NovaUI"))
+end
 
 local Window = NovaUI:CreateWindow({
     Title = "NovaUI",
@@ -14,6 +28,12 @@ local Window = NovaUI:CreateWindow({
     AccentColor = Color3.fromRGB(104, 190, 255),
     ToggleKey = Enum.KeyCode.RightControl,
     ReducedMotion = false,
+    Resizable = true,
+    SnapToEdges = true,
+    SnapDistance = 18,
+    AnimationScale = 1,
+    WindowTransparency = 0.14,
+    CornerRadius = 16,
 
     -- Optional logo. Remove this field to show no logo.
     Logo = {
@@ -24,6 +44,15 @@ local Window = NovaUI:CreateWindow({
     -- Image logo alternative:
     -- Logo = { Type = "Image", Image = "rbxassetid://YOUR_IMAGE_ID" },
 })
+
+local savedConfig = nil
+
+Window:RegisterCommand("Show success notification", function()
+    Window:NotifySuccess("Settings saved successfully!", 3)
+end, { "notification", "toast", "success" })
+Window:RegisterCommand("Open appearance editor", function()
+    Window:OpenThemeEditor()
+end, { "theme", "colors", "customize" })
 
 local Main = Window:CreateTab("Main")
 Main:AddSection("INTERACTIONS")
@@ -89,6 +118,51 @@ Main:AddDropdown({
     end,
 })
 
+Main:AddMultiDropdown({
+    Name = "Effects",
+    Options = { "Bloom", "Motion blur", "Reflections", "Particles", "Shadows" },
+    Default = { "Bloom", "Particles" },
+    Tooltip = "Choose several options at once.",
+    Callback = function(values)
+        print("Enabled effects:", table.concat(values, ", "))
+    end,
+})
+
+local progressDemo = Main:AddProgressBar({
+    Name = "Demo progress",
+    Min = 0,
+    Max = 100,
+    Default = 35,
+})
+Main:AddButton({
+    Name = "Advance progress demo",
+    Callback = function()
+        progressDemo:Set(math.min(100, progressDemo:Get() + 15))
+    end,
+})
+
+Main:AddRadioGroup({
+    Name = "Performance preset",
+    Options = { "Balanced", "Performance", "Quality" },
+    Default = "Balanced",
+    Callback = function(value)
+        print("Performance preset:", value)
+    end,
+})
+
+Main:AddButton({
+    Name = "Dismissible notification",
+    Callback = function()
+        Window:Notify({
+            Title = "Quick message",
+            Text = "Close this toast with the small X.",
+            Type = "Info",
+            Duration = 8,
+            ShowCloseButton = true,
+        })
+    end,
+})
+
 Main:AddTextBox({
     Name = "Nickname",
     Placeholder = "Enter a nickname...",
@@ -138,6 +212,14 @@ Appearance:AddToggle({
 })
 
 Appearance:AddButton({
+    Name = "Open live theme editor",
+    Description = "Change theme, accent, glass and roundness.",
+    Callback = function()
+        Window:OpenThemeEditor()
+    end,
+})
+
+Appearance:AddButton({
     Name = "Change logo to a star",
     Callback = function()
         Window:SetLogo("★", "Text")
@@ -154,6 +236,56 @@ Appearance:AddButton({
 })
 
 local About = Window:CreateTab("About")
+About:AddSection("NEW IN NOVAUI 1.2")
+About:AddButton({
+    Name = "Open command palette (Ctrl+K)",
+    Description = "Search tabs and registered commands.",
+    Callback = function()
+        Window:OpenCommandPalette()
+    end,
+})
+
+About:AddKeybindList({
+    Name = "Live keybind list",
+    Height = 130,
+})
+
+About:AddButton({
+    Name = "Save UI config to memory",
+    Callback = function()
+        savedConfig = Window:GetConfig()
+        Window:NotifySuccess("Configuration saved in memory.", 2)
+    end,
+})
+
+About:AddButton({
+    Name = "Restore saved UI config",
+    Callback = function()
+        if savedConfig then
+            Window:ApplyConfig(savedConfig)
+            Window:NotifySuccess("Configuration restored.", 2)
+        else
+            Window:NotifyWarning("Save a configuration first.", 2)
+        end
+    end,
+})
+
+About:AddButton({
+    Name = "Try custom glass theme",
+    Callback = function()
+        Window:SetThemeConfig({
+            Colors = {
+                Background = Color3.fromRGB(16, 22, 36),
+                Card = Color3.fromRGB(31, 43, 64),
+            },
+            AccentColor = Color3.fromRGB(125, 210, 255),
+            WindowTransparency = 0.1,
+            CornerRadius = 16,
+            AnimationScale = 0.85,
+        })
+    end,
+})
+
 About:AddParagraph({
     Title = "Window controls",
     Content = "The top bar has separate buttons for collapsing to a title bar, collapsing to a square icon, and closing. Clicking the square icon always restores the full window, even if it was previously collapsed to a bar.",
@@ -165,7 +297,8 @@ About:AddLabel({
 })
 
 About:AddDivider()
-About:AddLabel("This example is intended for a LocalScript in your own Roblox experience.")
+About:AddLabel("Ctrl+K opens the command palette. Drag the window to an edge to snap it; drag the lower-right grip to resize.")
+About:AddLabel("Studio mode uses a ModuleScript. GitHub loadstring mode requires an executor that supports game:HttpGet/loadstring.")
 
 Window:Notify({
     Title = "NovaUI ready",
