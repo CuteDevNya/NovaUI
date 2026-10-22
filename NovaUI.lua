@@ -642,6 +642,22 @@ function WindowMethods:RegisterControl(name, kind, control)
     return control
 end
 
+function WindowMethods:RefreshSearchTabs()
+    for _, tab in ipairs(self._searchTabs or {}) do
+        if tab._renderSearch and tab._searchInput and tab._searchInput.Parent then
+            pcall(tab._renderSearch, tab._searchInput.Text)
+        end
+    end
+end
+
+function WindowMethods:OpenSearchTab()
+    local tab = self._searchTabs and self._searchTabs[1]
+    if not tab or self._destroyed then return end
+    self:SelectTab(tab)
+    self:SetVisible(true)
+    if tab._searchInput then tab._searchInput:CaptureFocus() end
+end
+
 function WindowMethods:SetReducedMotion(enabled)
     if self._screenGui then
         self._screenGui:SetAttribute("NovaReducedMotion", enabled == true)
@@ -2594,260 +2610,246 @@ function WindowMethods:RegisterCommand(name, callback, keywords)
     if self.RefreshSearchTabs then self:RefreshSearchTabs() end
 end
 
-function WindowMethods:CloseCommandPalette()
-    if self._commandPalette and self._commandPalette.Frame then
-        self._commandPalette.Frame.Visible = false
+function WindowMethods:CreateSearchTab(tabName, options)
+    if self._destroyed then return nil end
+    options = options or {}
+    local tab = self:CreateTab(tabName or "Search", options)
+    tab._isSearchTab = true
+    self._searchTabs = self._searchTabs or {}
+    table.insert(self._searchTabs, tab)
+
+    local searchCard = makeCard(tab.Page, 58, self)
+    searchCard.Name = "SearchInputCard"
+    searchCard.LayoutOrder = -1000
+    local iconOffset = addLeadingIcon(searchCard, options.SearchIcon or { Type = "Text", Text = "S" }, self, 29, 22)
+    local searchInput = create("TextBox", {
+        Name = "SearchInput",
+        Position = UDim2.new(0, 12 + iconOffset, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
+        Size = UDim2.new(1, -24 - iconOffset, 0, 36),
+        BackgroundColor3 = self.Colors.BackgroundLight,
+        BackgroundTransparency = 0.12,
+        BorderSizePixel = 0,
+        Text = "",
+        PlaceholderText = "Search tabs, commands and settings...",
+        PlaceholderColor3 = self.Colors.Muted,
+        TextColor3 = self.Colors.Text,
+        TextSize = 13,
+        Font = Enum.Font.Gotham,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ClearTextOnFocus = false,
+    }, searchCard)
+    addCorner(searchInput, 9)
+    create("UIPadding", {
+        PaddingLeft = UDim.new(0, 9),
+        PaddingRight = UDim.new(0, 7),
+    }, searchInput)
+    addStroke(searchInput, self.Colors.Outline, 0.78, 1)
+
+    local resultConnections = {}
+    local resultCards = {}
+    local function clearResults()
+        for _, connection in ipairs(resultConnections) do
+            pcall(function() connection:Disconnect() end)
+        end
+        table.clear(resultConnections)
+        for _, instance in ipairs(resultCards) do
+            if instance and instance.Parent then instance:Destroy() end
+        end
+        table.clear(resultCards)
     end
-end
 
-function WindowMethods:OpenCommandPalette()
-    if self._destroyed then return end
-    local palette = self._commandPalette
-    if not palette then
-        local backdrop = create("TextButton", {
-            Name = "CommandPaletteBackdrop", Size = UDim2.fromScale(1, 1),
-            BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 0.58,
-            BorderSizePixel = 0, Text = "", AutoButtonColor = false, ZIndex = 150,
-        }, self._screenGui)
-        local panel = create("Frame", {
-            Name = "CommandPalette", AnchorPoint = Vector2.new(0.5, 0),
-            Position = UDim2.new(0.5, 0, 0, 12),
-            Size = UDim2.new(0.92, 0, 0, math.max(180, math.min(335, currentViewportSize().Y - 24))),
-            BackgroundColor3 = self.Colors.Card, BackgroundTransparency = 0.04,
-            BorderSizePixel = 0, ZIndex = 151, ClipsDescendants = true,
-        }, backdrop)
-        addCorner(panel, 14)
-        addStroke(panel, self.AccentColor, 0.35, 1.2)
-        createText(panel, "COMMAND PALETTE", 10, self.Colors.Accent, {
-            Position = UDim2.new(0, 14, 0, 8), Size = UDim2.new(1, -28, 0, 18),
-            ZIndex = 153, Font = Enum.Font.GothamBold,
-        })
-        local search = create("TextBox", {
-            Name = "CommandSearch", Position = UDim2.new(0, 12, 0, 32),
-            Size = UDim2.new(1, -24, 0, 38), BackgroundColor3 = self.Colors.BackgroundLight,
-            BackgroundTransparency = 0.06, BorderSizePixel = 0, Text = "",
-            PlaceholderText = "Search commands or tabs...", PlaceholderColor3 = self.Colors.Muted,
-            TextColor3 = self.Colors.Text, TextSize = 13, Font = Enum.Font.Gotham,
-            ClearTextOnFocus = false, ZIndex = 153,
-        }, panel)
-        addCorner(search, 9)
-        local results = create("ScrollingFrame", {
-            Name = "CommandResults", Position = UDim2.new(0, 12, 0, 79),
-            Size = UDim2.new(1, -24, 1, -91), BackgroundTransparency = 1,
-            BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = self.AccentColor,
-            AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(0, 0, 0, 0),
-            ScrollingDirection = Enum.ScrollingDirection.Y, ZIndex = 152,
-        }, panel)
-        create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, results)
-        palette = { Frame = backdrop, Panel = panel, Search = search, Results = results, RunFirst = nil }
-        self._commandPalette = palette
+    local function render(query)
+        clearResults()
+        query = string.lower(tostring(query or ""))
+        local matches = {}
 
-        local function render(query)
-            for _, connection in ipairs(palette.ResultConnections or {}) do
-                pcall(function() connection:Disconnect() end)
+        for _, command in ipairs(self._commands or {}) do
+            local haystack = string.lower(command.Name .. " " .. command.Keywords)
+            if query == "" or string.find(haystack, query, 1, true) then
+                table.insert(matches, {
+                    Kind = "Command",
+                    Name = command.Name,
+                    Detail = "Command",
+                    Callback = command.Callback,
+                    Keywords = command.Keywords,
+                })
             end
-            palette.ResultConnections = {}
-            for _, child in ipairs(results:GetChildren()) do
-                if child:IsA("TextButton") or child.Name == "CommandEmpty" then child:Destroy() end
-            end
-            query = string.lower(tostring(query or ""))
-            local matches = {}
-            for _, command in ipairs(self._commands or {}) do
-                local haystack = string.lower(command.Name .. " " .. command.Keywords)
+        end
+
+        for _, otherTab in ipairs(self._tabs or {}) do
+            if not otherTab._isSearchTab then
+                local haystack = string.lower(otherTab.Name .. " tab")
                 if query == "" or string.find(haystack, query, 1, true) then
-                    table.insert(matches, { Name = command.Name, Callback = command.Callback })
-                end
-            end
-            for _, tab in ipairs(self._tabs or {}) do
-                local selectedTab = tab
-                local tabName = "Open tab: " .. selectedTab.Name
-                if query == "" or string.find(string.lower(tabName), query, 1, true) then
                     table.insert(matches, {
-                        Name = tabName,
-                        Callback = function()
-                            self:SelectTab(selectedTab)
-                            self:SetVisible(true)
-                            self:CloseCommandPalette()
-                        end,
+                        Kind = "Tab",
+                        Name = otherTab.Name,
+                        Detail = "Tab",
+                        Tab = otherTab,
+                        Keywords = otherTab.Name,
                     })
                 end
             end
-            palette.RunFirst = matches[1] and matches[1].Callback or nil
-            if #matches == 0 then
-                createText(results, "No matching commands", 12, self.Colors.Muted, {
-                    Name = "CommandEmpty", Size = UDim2.new(1, -8, 0, 34), ZIndex = 154,
+        end
+
+        for _, entry in pairs(self._controls or {}) do
+            local tabName = entry.Tab and entry.Tab.Name or ""
+            local haystack = string.lower(entry.Name .. " " .. entry.Type .. " " .. tabName)
+            if query == "" or string.find(haystack, query, 1, true) then
+                table.insert(matches, {
+                    Kind = "Control",
+                    Name = entry.Name,
+                    Detail = entry.Type .. (tabName ~= "" and (" · " .. tabName) or ""),
+                    Entry = entry,
+                    Keywords = haystack,
                 })
-                return
-            end
-            for index, item in ipairs(matches) do
-                local button = create("TextButton", {
-                    Name = "CommandResult_" .. index, Size = UDim2.new(1, -5, 0, 34),
-                    BackgroundColor3 = self.Colors.CardHover, BackgroundTransparency = 0.3,
-                    BorderSizePixel = 0, Text = item.Name, TextColor3 = self.Colors.Text,
-                    TextSize = 12, Font = Enum.Font.GothamMedium, TextXAlignment = Enum.TextXAlignment.Left,
-                    AutoButtonColor = false, LayoutOrder = index, ZIndex = 154,
-                }, results)
-                addCorner(button, 8)
-                create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 8) }, button)
-                local commandItem = item
-                table.insert(palette.ResultConnections, button.Activated:Connect(function()
-                    self:CloseCommandPalette()
-                    safeCallback(commandItem.Callback)
-                end))
             end
         end
-        palette.Render = render
-        addConnection(self, search:GetPropertyChangedSignal("Text"), function() render(search.Text) end)
-        addConnection(self, search.FocusLost, function(enterPressed)
-            if enterPressed and palette.RunFirst then
-                local callback = palette.RunFirst
-                self:CloseCommandPalette()
-                safeCallback(callback)
-            end
+
+        table.sort(matches, function(a, b)
+            if a.Kind ~= b.Kind then return a.Kind < b.Kind end
+            return string.lower(a.Name) < string.lower(b.Name)
         end)
-        addConnection(self, backdrop.Activated, function() self:CloseCommandPalette() end)
-        addConnection(self, UserInputService.InputBegan, function(input, processed)
-            if not processed and input.KeyCode == Enum.KeyCode.Escape and palette.Frame.Visible then
-                self:CloseCommandPalette()
-            end
-        end)
+
+        if #matches == 0 then
+            local empty = makeCard(tab.Page, 44, self)
+            empty.LayoutOrder = 1
+            table.insert(resultCards, empty)
+            createText(empty, "No matching tabs, commands or settings", 12, self.Colors.Muted, {
+                Position = UDim2.new(0, 13, 0, 0),
+                Size = UDim2.new(1, -26, 1, 0),
+                Font = Enum.Font.Gotham,
+            })
+            return
+        end
+
+        for index, item in ipairs(matches) do
+            local row = makeCard(tab.Page, 48, self)
+            row.LayoutOrder = index
+            table.insert(resultCards, row)
+            local marker = item.Kind == "Tab" and "T" or (item.Kind == "Command" and "C" or "S")
+            addLeadingIcon(row, { Type = "Text", Text = marker }, self, 24, 20)
+            local hitbox = create("TextButton", {
+                Name = "SearchResult_" .. index,
+                Size = UDim2.fromScale(1, 1),
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                Text = "",
+                AutoButtonColor = false,
+            }, row)
+            createText(row, item.Name, 12, self.Colors.Text, {
+                Position = UDim2.new(0, 40, 0, 3),
+                Size = UDim2.new(1, -52, 0, 21),
+                Font = Enum.Font.GothamMedium,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+            })
+            createText(row, item.Detail, 10, self.Colors.Muted, {
+                Position = UDim2.new(0, 40, 0, 24),
+                Size = UDim2.new(1, -52, 0, 17),
+                Font = Enum.Font.Gotham,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+            })
+            local stroke = row:FindFirstChildOfClass("UIStroke")
+            addInteractive(hitbox, self, stroke)
+            local selectedItem = item
+            table.insert(resultConnections, hitbox.Activated:Connect(function()
+                if selectedItem.Kind == "Tab" then
+                    self:SelectTab(selectedItem.Tab)
+                elseif selectedItem.Kind == "Command" then
+                    safeCallback(selectedItem.Callback)
+                elseif selectedItem.Kind == "Control" and selectedItem.Entry then
+                    local targetTab = selectedItem.Entry.Tab
+                    if targetTab then
+                        self:SelectTab(targetTab)
+                        local instance = selectedItem.Entry.Control.Instance
+                        if instance and instance.Parent then
+                            local page = targetTab.Page
+                            local y = instance.AbsolutePosition.Y - page.AbsolutePosition.Y + page.CanvasPosition.Y - 8
+                            page.CanvasPosition = Vector2.new(0, math.max(0, y))
+                        end
+                    end
+                end
+                self:SetVisible(true)
+            end))
+        end
     end
-    palette.Frame.Visible = true
-    palette.Search.Text = ""
-    palette.Render("")
-    palette.Search:CaptureFocus()
+
+    tab._searchInput = searchInput
+    tab._renderSearch = render
+    addConnection(self, searchInput:GetPropertyChangedSignal("Text"), function()
+        render(searchInput.Text)
+    end)
+    self:RefreshSearchTabs()
+    return tab
 end
 
-function WindowMethods:OpenThemeEditor()
-    if self._destroyed then return end
-    local editor = self._themeEditor
-    if editor and editor.Frame and editor.Frame.Parent then
-        editor.Frame.Visible = not editor.Frame.Visible
-        return
+function WindowMethods:CreateThemeEditorTab(tabName, options)
+    if self._destroyed then return nil end
+    options = options or {}
+    if not options.Icon then
+        options.Icon = { Type = "Text", Text = "A" }
     end
-    local viewport = currentViewportSize()
-    local panelWidth = math.max(180, math.min(310, viewport.X - 20))
-    local frame = create("Frame", {
-        Name = "NovaThemeEditor", AnchorPoint = Vector2.new(1, 0),
-        Position = UDim2.new(1, -12, 0, 76), Size = UDim2.fromOffset(panelWidth, 330),
-        BackgroundColor3 = self.Colors.Card, BackgroundTransparency = 0.04,
-        BorderSizePixel = 0, ZIndex = 170, ClipsDescendants = true,
-    }, self._screenGui)
-    addCorner(frame, 15)
-    addStroke(frame, self.AccentColor, 0.32, 1.2)
-    createText(frame, "LIVE THEME EDITOR", 12, self.Colors.Text, {
-        Position = UDim2.new(0, 14, 0, 10), Size = UDim2.new(1, -52, 0, 24),
-        Font = Enum.Font.GothamBold, ZIndex = 171,
-    })
-    local close = create("TextButton", {
-        Name = "ThemeEditorClose", AnchorPoint = Vector2.new(1, 0),
-        Position = UDim2.new(1, -9, 0, 8), Size = UDim2.fromOffset(26, 26),
-        BackgroundColor3 = self.Colors.CardHover, BackgroundTransparency = 0.1,
-        BorderSizePixel = 0, Text = "×", TextColor3 = self.Colors.Text, TextSize = 18,
-        Font = Enum.Font.GothamBold, ZIndex = 172,
-    }, frame)
-    addCorner(close, 8)
-    addConnection(self, close.Activated, function() frame.Visible = false end)
-    createText(frame, "Theme preset", 11, self.Colors.Muted, {
-        Position = UDim2.new(0, 14, 0, 43), Size = UDim2.new(1, -28, 0, 18), ZIndex = 171,
-    })
-    local themeNames = { "Dark", "Midnight", "Ocean", "Light" }
-    for index, name in ipairs(themeNames) do
-        local themeName = name
-        local button = create("TextButton", {
-            Name = "Theme_" .. name,
-            Position = UDim2.new(0, 12 + ((index - 1) % 2) * ((panelWidth - 30) / 2 + 6), 0, 64 + math.floor((index - 1) / 2) * 34),
-            Size = UDim2.fromOffset((panelWidth - 30) / 2, 28),
-            BackgroundColor3 = self.Colors.CardHover, BackgroundTransparency = 0.12,
-            BorderSizePixel = 0, Text = name, TextColor3 = self.Colors.Text,
-            TextSize = 11, Font = Enum.Font.GothamMedium, ZIndex = 171,
-        }, frame)
-        addCorner(button, 8)
-        addConnection(self, button.Activated, function() self:SetTheme(themeName) end)
-    end
-    createText(frame, "Accent colors", 11, self.Colors.Muted, {
-        Position = UDim2.new(0, 14, 0, 142), Size = UDim2.new(1, -28, 0, 18), ZIndex = 171,
-    })
-    local accents = {
-        { "Blue", Color3.fromRGB(104, 190, 255) }, { "Purple", Color3.fromRGB(174, 140, 255) },
-        { "Mint", Color3.fromRGB(94, 230, 190) }, { "Pink", Color3.fromRGB(255, 125, 190) },
-        { "Orange", Color3.fromRGB(255, 174, 96) },
-    }
-    for index, item in ipairs(accents) do
-        local slot = index
-        local button = create("TextButton", {
-            Name = "Accent_" .. item[1],
-            Position = UDim2.new(0, 14 + (index - 1) * ((panelWidth - 28) / #accents), 0, 164),
-            Size = UDim2.fromOffset(math.max(20, (panelWidth - 28) / #accents - 5), 26),
-            BackgroundColor3 = item[2], BorderSizePixel = 0, Text = "", ZIndex = 171,
-        }, frame)
-        addCorner(button, 8)
-        addStroke(button, self.Colors.White, 0.52, 1)
-        addConnection(self, button.Activated, function()
-            self:SetThemeConfig({ AccentColor = accents[slot][2] })
-        end)
-    end
-    local glass = create("TextButton", {
-        Name = "CycleTransparency", Position = UDim2.new(0, 12, 0, 206),
-        Size = UDim2.new(0.5, -18, 0, 30), BackgroundColor3 = self.Colors.CardHover,
-        BackgroundTransparency = 0.1, BorderSizePixel = 0,
-        Text = "Glass", TextColor3 = self.Colors.Text, TextSize = 11, ZIndex = 171,
-    }, frame)
-    addCorner(glass, 8)
-    local transparencyValues = { 0.08, 0.14, 0.24 }
-    local function updateGlassLabel()
-        glass.Text = "Glass: " .. string.format("%d%%", math.floor((1 - (self._windowTransparency or 0.14)) * 100))
-    end
-    updateGlassLabel()
-    addConnection(self, glass.Activated, function()
-        local current = self._windowTransparency or 0.14
-        local nextValue = transparencyValues[1]
-        for index, value in ipairs(transparencyValues) do
-            if math.abs(current - value) < 0.015 then
-                nextValue = transparencyValues[index % #transparencyValues + 1]
-                break
-            end
-        end
-        self:SetThemeConfig({ WindowTransparency = nextValue })
-        updateGlassLabel()
-    end)
-    local radius = create("TextButton", {
-        Name = "CycleCornerRadius", Position = UDim2.new(0.5, 6, 0, 206),
-        Size = UDim2.new(0.5, -18, 0, 30), BackgroundColor3 = self.Colors.CardHover,
-        BackgroundTransparency = 0.1, BorderSizePixel = 0,
-        Text = "Roundness", TextColor3 = self.Colors.Text, TextSize = 11, ZIndex = 171,
-    }, frame)
-    addCorner(radius, 8)
-    local radii = { 10, 16, 22 }
-    local function updateRadiusLabel() radius.Text = "Roundness: " .. tostring(self._cornerRadius or 16) end
-    updateRadiusLabel()
-    addConnection(self, radius.Activated, function()
-        local current = self._cornerRadius or 16
-        local nextValue = radii[1]
-        for index, value in ipairs(radii) do
-            if current == value then nextValue = radii[index % #radii + 1]; break end
-        end
-        self:SetThemeConfig({ CornerRadius = nextValue })
-        updateRadiusLabel()
-    end)
-    local motion = create("TextButton", {
-        Name = "ToggleReducedMotion", Position = UDim2.new(0, 12, 0, 246),
-        Size = UDim2.new(1, -24, 0, 30), BackgroundColor3 = self.Colors.CardHover,
-        BackgroundTransparency = 0.1, BorderSizePixel = 0,
-        Text = self.ReducedMotion and "Animations: Reduced" or "Animations: Full",
-        TextColor3 = self.Colors.Text, TextSize = 11, ZIndex = 171,
-    }, frame)
-    addCorner(motion, 8)
-    addConnection(self, motion.Activated, function()
-        self:SetReducedMotion(not self.ReducedMotion)
-        motion.Text = self.ReducedMotion and "Animations: Reduced" or "Animations: Full"
-    end)
-    createText(frame, "Changes apply immediately.", 10, self.Colors.Muted, {
-        Position = UDim2.new(0, 14, 0, 286), Size = UDim2.new(1, -28, 0, 24), ZIndex = 171,
-    })
-    self._themeEditor = { Frame = frame }
-end
+    local tab = self:CreateTab(tabName or "Appearance", options)
+    self._themeEditorTab = tab
+    tab:AddSection("THEME & APPEARANCE")
 
+    tab:AddDropdown({
+        Name = "Theme",
+        Icon = { Type = "Text", Text = "T" },
+        Options = { "Dark", "Midnight", "Ocean", "Light" },
+        Default = self.Theme or "Dark",
+        Callback = function(value) self:SetTheme(value) end,
+    })
+    tab:AddColorPicker({
+        Name = "Accent color",
+        Icon = { Type = "Text", Text = "C" },
+        Default = self.AccentColor,
+        Callback = function(value) self:SetAccentColor(value) end,
+    })
+    tab:AddSlider({
+        Name = "Glass transparency",
+        Icon = { Type = "Text", Text = "G" },
+        Min = 0,
+        Max = 65,
+        Default = math.floor((self._windowTransparency or 0.14) * 100 + 0.5),
+        Step = 1,
+        Callback = function(value) self:SetThemeConfig({ WindowTransparency = value / 100 }) end,
+    })
+    tab:AddSlider({
+        Name = "Corner radius",
+        Icon = { Type = "Text", Text = "R" },
+        Min = 6,
+        Max = 24,
+        Default = self._cornerRadius or 16,
+        Step = 1,
+        Callback = function(value) self:SetThemeConfig({ CornerRadius = value }) end,
+    })
+    tab:AddSlider({
+        Name = "Animation speed",
+        Icon = { Type = "Text", Text = "A" },
+        Min = 45,
+        Max = 180,
+        Default = math.floor((self._animationScale or 1) * 100 + 0.5),
+        Step = 5,
+        Callback = function(value) self:SetThemeConfig({ AnimationScale = value / 100 }) end,
+    })
+    tab:AddToggle({
+        Name = "Reduce animations",
+        Icon = { Type = "Text", Text = "M" },
+        Default = self.ReducedMotion == true,
+        Callback = function(value) self:SetReducedMotion(value) end,
+    })
+    tab:AddParagraph({
+        Title = "Live settings",
+        Content = "These options update this window immediately. Use Window:GetConfig() to capture the current appearance and control values.",
+        Tooltip = "Theme changes appear instantly.",
+    })
+    self:RegisterCommand("Open appearance tab", function()
+        self:SelectTab(tab)
+        self:SetVisible(true)
+    end, { "theme", "appearance", "colors" })
+    return tab
+end
 
 function NovaUI:CreateWindow(config)
     config = config or {}
@@ -3162,7 +3164,13 @@ function NovaUI:CreateWindow(config)
     end
     screenGui:SetAttribute("NovaAnimationScale", window._animationScale)
     root.BackgroundTransparency = window._windowTransparency
-    window:RegisterCommand("Open theme editor", function() window:OpenThemeEditor() end, "theme appearance colors")
+    window:RegisterCommand("Open appearance tab", function()
+        if window._themeEditorTab then
+            window:SelectTab(window._themeEditorTab)
+            window:SetVisible(true)
+        end
+    end, "theme appearance colors")
+    window:RegisterCommand("Open search tab", function() window:OpenSearchTab() end, "search commands tabs settings")
     window:RegisterCommand("Collapse to top bar", function() window:CollapseBar() end, "minimize collapse")
     window:RegisterCommand("Collapse to icon", function() window:CollapseToSquare() end, "minimize square")
     window:RegisterCommand("Restore window", function() window:Expand() end, "expand restore")
@@ -3302,11 +3310,7 @@ function NovaUI:CreateWindow(config)
             and input.KeyCode == Enum.KeyCode.K
             and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl))
             and not UserInputService:GetFocusedTextBox() then
-            if window._commandPalette and window._commandPalette.Frame.Visible then
-                window:CloseCommandPalette()
-            else
-                window:OpenCommandPalette()
-            end
+            window:OpenSearchTab()
             return
         end
         if gameProcessed or UserInputService:GetFocusedTextBox() or window._listeningKeybind then return end
