@@ -1,5 +1,5 @@
 --[[
-    NovaUI 1.1.2 - Liquid Glass GUI Library for Roblox
+    NovaUI 1.1.3 - Liquid Glass GUI Library for Roblox
     Intended for a LocalScript + ModuleScript in an experience you own or are authorized to edit.
 
     Quick start:
@@ -32,6 +32,25 @@ WindowMethods.__index = WindowMethods
 
 local TabMethods = {}
 TabMethods.__index = TabMethods
+
+-- All window positions use a top-left origin. This keeps the compact icon
+-- anchored at the same point when the full window is collapsed or restored.
+local function currentViewportSize()
+    local camera = workspace.CurrentCamera
+    return camera and camera.ViewportSize or Vector2.new(1280, 720)
+end
+
+local function clampTopLeft(position, size, viewport)
+    viewport = viewport or currentViewportSize()
+    local x = position.X.Scale * viewport.X + position.X.Offset
+    local y = position.Y.Scale * viewport.Y + position.Y.Offset
+    local width = size.X.Scale * viewport.X + size.X.Offset
+    local height = size.Y.Scale * viewport.Y + size.Y.Offset
+
+    x = math.clamp(x, 0, math.max(0, viewport.X - width))
+    y = math.clamp(y, 0, math.max(0, viewport.Y - height))
+    return UDim2.fromOffset(x, y)
+end
 
 local COLORS = {
     Background = Color3.fromRGB(19, 25, 38),
@@ -476,12 +495,15 @@ function WindowMethods:CollapseBar()
     self._squareCollapseButton.Visible = true
     self._squareRestoreButton.Visible = false
 
-    -- Keep the top edge fixed while the window shrinks. Expansion restores the exact
-    -- saved center position; it is not recalculated from transient tween positions.
-    local collapseOffset = math.max(0, (self._expandedSize.Y.Offset - self._topbarHeight) / 2)
-    local targetPosition = self._expandedPosition + UDim2.fromOffset(0, -collapseOffset)
-    local targetSize = UDim2.new(self._expandedSize.X.Scale, self._expandedSize.X.Offset, 0, self._topbarHeight)
-    local tween = playTween(self._root, 0.36, Enum.EasingStyle.Back, Enum.EasingDirection.Out, {
+    local viewport = currentViewportSize()
+    local targetPosition = clampTopLeft(
+        self._expandedPosition or self._root.Position,
+        self._expandedSize,
+        viewport
+    )
+    self._expandedPosition = targetPosition
+    local targetSize = UDim2.fromOffset(self._expandedSize.X.Offset, self._topbarHeight)
+    local tween = playTween(self._root, 0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
         Size = targetSize,
         Position = targetPosition,
     })
@@ -517,12 +539,25 @@ function WindowMethods:CollapseToSquare()
     self._squareCollapseButton.Visible = false
     self._squareRestoreButton.Visible = true
     self._squareRestoreButton.Size = UDim2.fromScale(1, 1)
+
+    -- Clamp using the full window size, not the tiny icon, so the expanded GUI
+    -- can be restored from this exact top-left origin without going off-screen.
+    local viewport = currentViewportSize()
+    local targetPosition = clampTopLeft(
+        self._expandedPosition or self._root.Position,
+        self._expandedSize,
+        viewport
+    )
+    self._expandedPosition = targetPosition
     local size = self._compactSize
-    local tween = playTween(self._root, 0.42, Enum.EasingStyle.Back, Enum.EasingDirection.InOut, {
-        Size = UDim2.fromOffset(size, size),
+    local targetSize = UDim2.fromOffset(size, size)
+    local tween = playTween(self._root, 0.34, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, {
+        Size = targetSize,
+        Position = targetPosition,
     })
     if not tween then
-        self._root.Size = UDim2.fromOffset(size, size)
+        self._root.Size = targetSize
+        self._root.Position = targetPosition
     end
 end
 
@@ -538,6 +573,15 @@ function WindowMethods:Expand()
     if self._destroyed then
         return
     end
+    local target = self._expandedSize
+    local viewport = currentViewportSize()
+    local targetPosition = clampTopLeft(
+        self._expandedPosition or self._root.Position,
+        target,
+        viewport
+    )
+    self._expandedPosition = targetPosition
+
     self._collapseMode = nil
     setCollapsedBodyVisible(self, true)
     self._topbar.Size = UDim2.new(1, 0, 0, self._topbarHeight)
@@ -548,9 +592,9 @@ function WindowMethods:Expand()
     self._barCollapseButton.Visible = true
     self._squareCollapseButton.Visible = true
     self._squareRestoreButton.Visible = false
-    local target = self._expandedSize
-    local targetPosition = self._expandedPosition or self._root.Position
-    local tween = playTween(self._root, 0.42, Enum.EasingStyle.Back, Enum.EasingDirection.Out, {
+
+    -- Quad easing avoids overshooting the screen bounds during the resize.
+    local tween = playTween(self._root, 0.34, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
         Size = target,
         Position = targetPosition,
     })
@@ -1841,12 +1885,16 @@ function NovaUI:CreateWindow(config)
     end
     palette.Accent = accent
 
-    local desiredWidth = math.max(280, tonumber(config.Width) or 650)
-    local desiredHeight = math.max(220, tonumber(config.Height) or 450)
+    local desiredWidth = math.max(180, tonumber(config.Width) or 650)
+    local desiredHeight = math.max(160, tonumber(config.Height) or 450)
     local camera = workspace.CurrentCamera
     local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
-    local width = math.min(desiredWidth, math.max(280, viewport.X - 24))
-    local height = math.min(desiredHeight, math.max(220, viewport.Y - 24))
+    local width = math.min(desiredWidth, math.max(1, viewport.X - 24))
+    local height = math.min(desiredHeight, math.max(1, viewport.Y - 24))
+    local initialPosition = UDim2.fromOffset(
+        math.floor((viewport.X - width) / 2),
+        math.floor((viewport.Y - height) / 2)
+    )
 
     local screenGui = create("ScreenGui", {
         Name = guiName,
@@ -1859,8 +1907,8 @@ function NovaUI:CreateWindow(config)
 
     local root = create("Frame", {
         Name = "Window",
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.new(0.5, 0, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0),
+        Position = initialPosition,
         Size = UDim2.fromOffset(width, height),
         BackgroundColor3 = palette.Background,
         BackgroundTransparency = 0.14,
@@ -1925,7 +1973,7 @@ function NovaUI:CreateWindow(config)
     end
 
     local titleX = hasLogo and 54 or 18
-    local titleRightPadding = hasLogo and -164 or -128
+    local titleRightPadding = -math.min(hasLogo and 164 or 128, math.max(0, width - 1))
     local titleLabel = createText(topbar, config.Title or "NovaUI", 16, palette.Text, {
         Name = "Title",
         Position = UDim2.new(0, titleX, 0, config.Subtitle and 5 or 0),
@@ -1936,7 +1984,7 @@ function NovaUI:CreateWindow(config)
     local subtitleLabel = createText(topbar, config.Subtitle or "LIQUID GLASS INTERFACE", 10, palette.Muted, {
         Name = "Subtitle",
         Position = UDim2.new(0, hasLogo and 55 or 19, 0, 31),
-        Size = UDim2.new(1, hasLogo and -170 or -135, 0, 17),
+        Size = UDim2.new(1, -math.min(hasLogo and 170 or 135, math.max(0, width - 1)), 0, 17),
         Font = Enum.Font.GothamMedium,
         TextTruncate = Enum.TextTruncate.AtEnd,
     })
@@ -1993,7 +2041,8 @@ function NovaUI:CreateWindow(config)
         BorderSizePixel = 0,
     }, barCollapseButton)
 
-    local compactSize = math.clamp(tonumber(config.CompactSize) or 58, 48, 76)
+    local compactSizeBase = math.clamp(tonumber(config.CompactSize) or 58, 48, 76)
+    local compactSize = math.min(compactSizeBase, math.max(1, math.min(viewport.X, viewport.Y) - 16))
     local squareRestoreButton = create("TextButton", {
         Name = "SquareRestoreButton",
         Size = UDim2.fromScale(1, 1),        BackgroundTransparency = 1,
@@ -2036,8 +2085,10 @@ function NovaUI:CreateWindow(config)
         BorderSizePixel = 0,
     }, root)
 
-    local sidebarWidth = width < 480 and 104 or 142
-    local contentLeft = sidebarWidth + 20
+    local sidebarWidth = math.floor(math.min(width * 0.42, width < 340 and 82 or (width < 480 and 104 or 142)))
+    local contentGap = width < 340 and 12 or 20
+    local contentRightPadding = width < 340 and 8 or 12
+    local contentLeft = sidebarWidth + contentGap
     local sidebar = create("Frame", {
         Name = "Sidebar",
         Position = UDim2.new(0, 12, 0, 68),
@@ -2067,7 +2118,7 @@ function NovaUI:CreateWindow(config)
     local content = create("Frame", {
         Name = "Content",
         Position = UDim2.new(0, contentLeft, 0, 66),
-        Size = UDim2.new(1, -(contentLeft + 12), 1, -76),
+        Size = UDim2.new(1, -(contentLeft + contentRightPadding), 1, -76),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         ClipsDescendants = true,
@@ -2090,6 +2141,7 @@ function NovaUI:CreateWindow(config)
         _squareCollapseButton = squareCollapseButton,
         _squareRestoreButton = squareRestoreButton,
         _compactSize = compactSize,
+        _compactSizeBase = compactSizeBase,
         _expandedSize = UDim2.fromOffset(width, height),
         _expandedPosition = root.Position,
         _tabList = tabList,
@@ -2141,7 +2193,6 @@ function NovaUI:CreateWindow(config)
     local dragMoved = false
     local dragStart = nil
     local startPosition = nil
-    local startExpandedPosition = nil
     local dragMode = nil
     local DRAG_THRESHOLD = 5
 
@@ -2164,7 +2215,6 @@ function NovaUI:CreateWindow(config)
         dragMoved = false
         dragStart = input.Position
         startPosition = root.Position
-        startExpandedPosition = window._expandedPosition or root.Position
         dragMode = source
     end
 
@@ -2188,18 +2238,18 @@ function NovaUI:CreateWindow(config)
         end
         dragMoved = true
         local offset = UDim2.fromOffset(delta.X, delta.Y)
-        local nextPosition = startPosition + offset
+        -- Keep the top-left origin aligned in every mode. Clamp against the full
+        -- expanded size, even while the visible object is only a small icon/bar.
+        local nextPosition = clampTopLeft(
+            startPosition + offset,
+            window._expandedSize,
+            currentViewportSize()
+        )
         root.Position = nextPosition
+        window._expandedPosition = nextPosition
 
         if dragMode == "square" then
-            -- Move the future expanded window by the same delta as the square icon.
-            window._expandedPosition = startExpandedPosition + offset
             window._squareWasDragged = true
-        elseif window._collapseMode == "bar" then
-            local restoreOffset = math.max(0, (window._expandedSize.Y.Offset - topbarHeight) / 2)
-            window._expandedPosition = nextPosition + UDim2.fromOffset(0, restoreOffset)
-        elseif window._collapseMode ~= "square" then
-            window._expandedPosition = nextPosition
         end
     end)
 
@@ -2215,20 +2265,15 @@ function NovaUI:CreateWindow(config)
         dragging = false
         dragStart = nil
         startPosition = nil
-        startExpandedPosition = nil
         dragMode = nil
         dragMoved = false
 
-        -- Don't rewrite the saved position after a simple click. This prevents the
-        -- previous position drift caused by button clicks being mistaken for drags.
-        if wasMoved and finishedMode == "window" then
-            if window._collapseMode == "bar" then
-                local restoreOffset = math.max(0, (window._expandedSize.Y.Offset - topbarHeight) / 2)
-                window._expandedPosition = root.Position + UDim2.fromOffset(0, restoreOffset)
-            elseif window._collapseMode ~= "square" then
-                window._expandedPosition = root.Position
-            end
-        elseif wasMoved and finishedMode == "square" then
+        -- Position is always the top-left anchor, so no center/half-height
+        -- correction is needed after dragging either the full window or its icon.
+        if wasMoved then
+            window._expandedPosition = root.Position
+        end
+        if wasMoved and finishedMode == "square" then
             -- Some Roblox clients do not fire Activated after a drag; clear this guard
             -- shortly afterward in either case, while allowing Activated to ignore drag-release.
             task.delay(0.24, function()
@@ -2247,24 +2292,59 @@ function NovaUI:CreateWindow(config)
         end
     end)
 
+    local function updateResponsiveLayout(viewportNow)
+        if window._destroyed then return end
+
+        local resizedWidth = math.min(desiredWidth, math.max(1, viewportNow.X - 24))
+        local resizedHeight = math.min(desiredHeight, math.max(1, viewportNow.Y - 24))
+        window._expandedSize = UDim2.fromOffset(resizedWidth, resizedHeight)
+        window._compactSize = math.min(
+            window._compactSizeBase,
+            math.max(1, math.min(viewportNow.X, viewportNow.Y) - 16)
+        )
+
+        local responsiveSidebarWidth = math.floor(math.min(
+            resizedWidth * 0.42,
+            resizedWidth < 340 and 82 or (resizedWidth < 480 and 104 or 142)
+        ))
+        local responsiveGap = resizedWidth < 340 and 12 or 20
+        local responsiveRightPadding = resizedWidth < 340 and 8 or 12
+        sidebar.Size = UDim2.new(0, responsiveSidebarWidth, 1, -80)
+        content.Position = UDim2.new(0, responsiveSidebarWidth + responsiveGap, 0, 66)
+        content.Size = UDim2.new(1, -(responsiveSidebarWidth + responsiveGap + responsiveRightPadding), 1, -76)
+
+        local expandedPosition = clampTopLeft(
+            window._expandedPosition or root.Position,
+            window._expandedSize,
+            viewportNow
+        )
+        window._expandedPosition = expandedPosition
+        root.Position = expandedPosition
+
+        if not window._collapseMode then
+            root.Size = window._expandedSize
+        elseif window._collapseMode == "bar" then
+            root.Size = UDim2.fromOffset(resizedWidth, topbarHeight)
+        else
+            root.Size = UDim2.fromOffset(window._compactSize, window._compactSize)
+        end
+    end
+
     if camera then
         addConnection(window, camera:GetPropertyChangedSignal("ViewportSize"), function()
-            if window._destroyed then return end
-            local viewportNow = camera.ViewportSize
-            local resizedWidth = math.min(desiredWidth, math.max(280, viewportNow.X - 24))
-            local resizedHeight = math.min(desiredHeight, math.max(220, viewportNow.Y - 24))
-            window._expandedSize = UDim2.fromOffset(resizedWidth, resizedHeight)
-            local responsiveSidebarWidth = resizedWidth < 480 and 104 or 142
-            sidebar.Size = UDim2.new(0, responsiveSidebarWidth, 1, -80)
-            content.Position = UDim2.new(0, responsiveSidebarWidth + 20, 0, 66)
-            content.Size = UDim2.new(1, -(responsiveSidebarWidth + 32), 1, -76)
-            if not window._collapseMode then
-                root.Size = window._expandedSize
-            elseif window._collapseMode == "bar" then
-                root.Size = UDim2.new(0, resizedWidth, 0, topbarHeight)
-            end
+            updateResponsiveLayout(camera.ViewportSize)
         end)
     end
+
+    -- Some clients replace CurrentCamera during respawn or viewport changes.
+    addConnection(window, workspace:GetPropertyChangedSignal("CurrentCamera"), function()
+        local newCamera = workspace.CurrentCamera
+        if not newCamera then return end
+        addConnection(window, newCamera:GetPropertyChangedSignal("ViewportSize"), function()
+            updateResponsiveLayout(newCamera.ViewportSize)
+        end)
+        updateResponsiveLayout(newCamera.ViewportSize)
+    end)
 
     -- Useful runtime theme and accent methods start from the selected palette.
     if normalizeThemeName(config.Theme or "Dark") ~= "Dark" then
