@@ -1,9 +1,8 @@
--- NovaUI 1.2.0 Example
+-- NovaUI 1.2.1 Example
 -- Loader mode:
---   true  = fetch from GitHub with loadstring/game:HttpGet (executor-dependent).
+--   true  = fetch from GitHub Raw using loadstring/game:HttpGet (executor-dependent).
 --   false = normal Roblox Studio LocalScript + ModuleScript workflow.
--- Use the remote loader only when you trust the published source and have permission
--- to run scripts in the experience. Ordinary Studio LocalScripts do not support game:HttpGet.
+-- A normal Roblox Studio LocalScript does not support game:HttpGet/loadstring.
 
 local USE_GITHUB_LOADER = true
 local NovaUI
@@ -24,7 +23,7 @@ local Window = NovaUI:CreateWindow({
     Subtitle = "LIQUID GLASS INTERFACE",
     Width = 650,
     Height = 460,
-    Theme = "Dark", -- Dark, Midnight, Ocean, Light
+    Theme = "Dark",
     AccentColor = Color3.fromRGB(104, 190, 255),
     ToggleKey = Enum.KeyCode.RightControl,
     ReducedMotion = false,
@@ -35,12 +34,8 @@ local Window = NovaUI:CreateWindow({
     WindowTransparency = 0.14,
     CornerRadius = 16,
 
-    -- Optional logo. Remove this field to show no logo.
-    Logo = {
-        Type = "Text",
-        Text = "N",
-    },
-
+    -- Text, letter or image. Remove this field for the no-logo appearance.
+    Logo = { Type = "Text", Text = "N" },
     -- Image logo alternative:
     -- Logo = { Type = "Image", Image = "rbxassetid://YOUR_IMAGE_ID" },
 })
@@ -50,29 +45,38 @@ local savedConfig = nil
 Window:RegisterCommand("Show success notification", function()
     Window:NotifySuccess("Settings saved successfully!", 3)
 end, { "notification", "toast", "success" })
-Window:RegisterCommand("Open appearance editor", function()
-    Window:OpenThemeEditor()
-end, { "theme", "colors", "customize" })
 
-local Main = Window:CreateTab("Main")
-Main:AddSection("INTERACTIONS")
+Window:RegisterCommand("Show warning notification", function()
+    Window:NotifyWarning("This is a warning.", 3)
+end, { "notification", "toast", "warning" })
+
+local Main = Window:CreateTab("Main", {
+    Icon = { Type = "Text", Text = "M" },
+})
+Main:AddSection({
+    Name = "INTERACTIONS",
+    Icon = { Type = "Text", Text = "I" },
+})
 
 Main:AddParagraph({
     Title = "Welcome to NovaUI",
-    Content = "A reusable liquid-glass UI with springy controls, notifications, themes, tooltips, and two different minimize modes.",
+    Content = "Liquid-glass UI with responsive layout, grouped controls, optional icons, inline search and appearance settings.",
+    Icon = { Type = "Text", Text = "N" },
 })
 
 Main:AddButton({
     Name = "Show success notification",
     Description = "A small glass toast slides in from the right.",
+    Icon = { Type = "Text", Text = "!" },
     Tooltip = "Notifications disappear automatically.",
     Callback = function()
-        Window:Notify("Success", "Settings saved successfully!", 3)
+        Window:NotifySuccess("Settings saved successfully!", 3)
     end,
 })
 
 Main:AddButton({
     Name = "Collapse to top bar",
+    Icon = { Type = "Text", Text = "-" },
     Tooltip = "The window keeps its width and shows only the title bar.",
     Callback = function()
         Window:CollapseBar()
@@ -81,7 +85,8 @@ Main:AddButton({
 
 Main:AddButton({
     Name = "Collapse to square icon",
-    Tooltip = "The window folds into a small icon. Click the icon to fully expand it again.",
+    Icon = { Type = "Text", Text = "O" },
+    Tooltip = "The window folds into a small icon. Click the icon to expand it.",
     Callback = function()
         Window:CollapseToSquare()
     end,
@@ -89,6 +94,7 @@ Main:AddButton({
 
 Main:AddToggle({
     Name = "Example feature",
+    Icon = { Type = "Text", Text = "F" },
     Default = false,
     Tooltip = "A toggle with a smooth animated switch.",
     Callback = function(enabled)
@@ -98,6 +104,7 @@ Main:AddToggle({
 
 Main:AddSlider({
     Name = "Intensity",
+    Icon = { Type = "Text", Text = "I" },
     Min = 0,
     Max = 100,
     Default = 50,
@@ -110,9 +117,10 @@ Main:AddSlider({
 
 Main:AddDropdown({
     Name = "Quality",
+    Icon = { Type = "Text", Text = "Q" },
     Options = { "Low", "Medium", "High", "Ultra" },
     Default = "High",
-    Tooltip = "The chevron is drawn from Frames instead of a special text glyph.",
+    Tooltip = "The chevron is drawn from rounded Frames.",
     Callback = function(value)
         print("Quality:", value)
     end,
@@ -120,22 +128,38 @@ Main:AddDropdown({
 
 Main:AddMultiDropdown({
     Name = "Effects",
-    Options = { "Bloom", "Motion blur", "Reflections", "Particles", "Shadows" },
+    Icon = { Type = "Text", Text = "E" },
+    Options = {
+        "Bloom", "Motion blur", "Reflections", "Particles", "Shadows",
+        "Ambient occlusion", "Depth of field", "Color correction",
+        "Sun rays", "Lens flare", "Volumetric lighting", "Dynamic fog",
+    },
     Default = { "Bloom", "Particles" },
-    Tooltip = "Choose several options at once.",
+    Tooltip = "Choose several options. Scroll within the dropdown to see the full list.",
     Callback = function(values)
         print("Enabled effects:", table.concat(values, ", "))
     end,
 })
 
-local progressDemo = Main:AddProgressBar({
+-- The progress display and its button share one card background.
+local ProgressGroup = Main:AddGroup({
+    Name = "PROGRESS DEMO",
+    Icon = { Type = "Text", Text = "P" },
+    BackgroundTransparency = 0.22,
+})
+
+local progressDemo = ProgressGroup:AddProgressBar({
     Name = "Demo progress",
+    Icon = { Type = "Text", Text = "%" },
     Min = 0,
     Max = 100,
     Default = 35,
 })
-Main:AddButton({
+
+ProgressGroup:AddButton({
     Name = "Advance progress demo",
+    Icon = { Type = "Text", Text = "+" },
+    Description = "Hover to see the soft highlight inside the shared card.",
     Callback = function()
         progressDemo:Set(math.min(100, progressDemo:Get() + 15))
     end,
@@ -143,6 +167,7 @@ Main:AddButton({
 
 Main:AddRadioGroup({
     Name = "Performance preset",
+    Icon = { Type = "Text", Text = "P" },
     Options = { "Balanced", "Performance", "Quality" },
     Default = "Balanced",
     Callback = function(value)
@@ -152,10 +177,11 @@ Main:AddRadioGroup({
 
 Main:AddButton({
     Name = "Dismissible notification",
+    Icon = { Type = "Text", Text = "B" },
     Callback = function()
         Window:Notify({
             Title = "Quick message",
-            Text = "Close this toast with the small X.",
+            Text = "Close this toast with its small X.",
             Type = "Info",
             Duration = 8,
             ShowCloseButton = true,
@@ -165,6 +191,7 @@ Main:AddButton({
 
 Main:AddTextBox({
     Name = "Nickname",
+    Icon = { Type = "Text", Text = "N" },
     Placeholder = "Enter a nickname...",
     Default = "Player",
     Tooltip = "The callback runs when the text box loses focus.",
@@ -175,52 +202,22 @@ Main:AddTextBox({
 
 Main:AddKeybind({
     Name = "Example keybind",
+    Icon = { Type = "Text", Text = "K" },
     Default = Enum.KeyCode.F,
-    Tooltip = "Click the key field and press any keyboard key to rebind it.",
+    Tooltip = "Click the key field and press a keyboard key to rebind it.",
     Callback = function(keyCode)
         print("Keybind action:", keyCode.Name)
     end,
 })
 
-local Appearance = Window:CreateTab("Appearance")
-Appearance:AddSection("PERSONALIZATION")
-
-Appearance:AddDropdown({
-    Name = "Theme",
-    Options = { "Dark", "Midnight", "Ocean", "Light" },
-    Default = "Dark",
-    Callback = function(themeName)
-        Window:SetTheme(themeName)
-    end,
-})
-
-Appearance:AddColorPicker({
-    Name = "Accent color",
-    Default = Color3.fromRGB(104, 190, 255),
-    Tooltip = "Open the card and adjust the RGB channels.",
-    Callback = function(color)
-        Window:SetAccentColor(color)
-    end,
-})
-
-Appearance:AddToggle({
-    Name = "Reduce animations",
-    Default = false,
-    Callback = function(enabled)
-        Window:SetReducedMotion(enabled)
-    end,
-})
-
-Appearance:AddButton({
-    Name = "Open live theme editor",
-    Description = "Change theme, accent, glass and roundness.",
-    Callback = function()
-        Window:OpenThemeEditor()
-    end,
+-- Appearance is now a normal tab inside the window, not a floating editor.
+local Appearance = Window:CreateThemeEditorTab("Appearance", {
+    Icon = { Type = "Text", Text = "A" },
 })
 
 Appearance:AddButton({
     Name = "Change logo to a star",
+    Icon = { Type = "Text", Text = "*" },
     Callback = function()
         Window:SetLogo("★", "Text")
         Window:SetTitle("NovaUI", "PERSONALIZED GLASS UI")
@@ -229,49 +226,16 @@ Appearance:AddButton({
 
 Appearance:AddButton({
     Name = "Remove logo",
+    Icon = { Type = "Text", Text = "X" },
     Callback = function()
         Window:SetLogo(nil)
         Window:SetTitle("NovaUI", "LIQUID GLASS INTERFACE")
     end,
 })
 
-local About = Window:CreateTab("About")
-About:AddSection("NEW IN NOVAUI 1.2")
-About:AddButton({
-    Name = "Open command palette (Ctrl+K)",
-    Description = "Search tabs and registered commands.",
-    Callback = function()
-        Window:OpenCommandPalette()
-    end,
-})
-
-About:AddKeybindList({
-    Name = "Live keybind list",
-    Height = 130,
-})
-
-About:AddButton({
-    Name = "Save UI config to memory",
-    Callback = function()
-        savedConfig = Window:GetConfig()
-        Window:NotifySuccess("Configuration saved in memory.", 2)
-    end,
-})
-
-About:AddButton({
-    Name = "Restore saved UI config",
-    Callback = function()
-        if savedConfig then
-            Window:ApplyConfig(savedConfig)
-            Window:NotifySuccess("Configuration restored.", 2)
-        else
-            Window:NotifyWarning("Save a configuration first.", 2)
-        end
-    end,
-})
-
-About:AddButton({
-    Name = "Try custom glass theme",
+Appearance:AddButton({
+    Name = "Use custom glass preset",
+    Icon = { Type = "Text", Text = "C" },
     Callback = function()
         Window:SetThemeConfig({
             Colors = {
@@ -286,23 +250,69 @@ About:AddButton({
     end,
 })
 
+local About = Window:CreateTab("About", {
+    Icon = { Type = "Text", Text = "i" },
+})
+About:AddSection({ Name = "CONFIG & CONTROLS", Icon = { Type = "Text", Text = "C" } })
+
+About:AddButton({
+    Name = "Open in-window search",
+    Icon = { Type = "Text", Text = "S" },
+    Description = "Search tabs, commands and settings without opening another window.",
+    Callback = function()
+        Window:OpenSearchTab()
+    end,
+})
+
+About:AddKeybindList({
+    Name = "Live keybind list",
+    Icon = { Type = "Text", Text = "K" },
+    Height = 130,
+})
+
+About:AddButton({
+    Name = "Save UI config to memory",
+    Icon = { Type = "Text", Text = "S" },
+    Callback = function()
+        savedConfig = Window:GetConfig()
+        Window:NotifySuccess("Configuration saved in memory.", 2)
+    end,
+})
+
+About:AddButton({
+    Name = "Restore saved UI config",
+    Icon = { Type = "Text", Text = "R" },
+    Callback = function()
+        if savedConfig then
+            Window:ApplyConfig(savedConfig)
+            Window:NotifySuccess("Configuration restored.", 2)
+        else
+            Window:NotifyWarning("Save a configuration first.", 2)
+        end
+    end,
+})
+
 About:AddParagraph({
     Title = "Window controls",
-    Content = "The top bar has separate buttons for collapsing to a title bar, collapsing to a square icon, and closing. Clicking the square icon always restores the full window, even if it was previously collapsed to a bar.",
+    Content = "Collapse to the top bar or square icon. Drag windows to screen edges to snap them, or resize using the lower-right grip. Ctrl+K focuses the Search tab.",
+    Icon = { Type = "Text", Text = "i" },
 })
 
 About:AddLabel({
-    Text = "Press RightControl to hide or show the window.",
-    Height = 42,
+    Text = "Studio mode uses a ModuleScript. GitHub loadstring mode requires an environment supporting game:HttpGet/loadstring.",
+    Icon = { Type = "Text", Text = "!" },
+    Height = 48,
 })
 
-About:AddDivider()
-About:AddLabel("Ctrl+K opens the command palette. Drag the window to an edge to snap it; drag the lower-right grip to resize.")
-About:AddLabel("Studio mode uses a ModuleScript. GitHub loadstring mode requires an executor that supports game:HttpGet/loadstring.")
+-- Search is a regular tab. Results include tabs, registered commands and settings.
+local Search = Window:CreateSearchTab("Search", {
+    Icon = { Type = "Text", Text = "S" },
+    SearchIcon = { Type = "Text", Text = "S" },
+})
 
 Window:Notify({
     Title = "NovaUI ready",
-    Text = "Your liquid-glass interface is ready.",
+    Text = "Use Search to find tabs, commands and settings.",
     Type = "Info",
     Duration = 3.5,
 })
