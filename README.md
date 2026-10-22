@@ -6,7 +6,7 @@ A reusable liquid-glass GUI library for Roblox Studio projects, with springy con
 
 - **NovaUI.lua** — the library source.
 - **NovaUI_Example.lua** — a complete feature showcase, including a GitHub loadstring(game:HttpGet(...)) loader option.
-- **NovaUI.txt** — copy-friendly mirror of the library.
+- **NovaUI.txt** — legacy text copy; use NovaUI.lua for the current 1.2.0 source.
 - **NovaUI_README.txt** — extended API guide.
 
 ## Loading the library
